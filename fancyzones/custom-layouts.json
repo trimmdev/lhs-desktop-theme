@@ -1,0 +1,49 @@
+{
+  "custom-layouts": [
+    {
+      "uuid": "{A1B2C3D4-1111-4A2B-9C3D-00E800A10001}",
+      "name": "LHS Ultrawide (30-40-30)",
+      "type": "grid",
+      "info": {
+        "rows": 1,
+        "columns": 3,
+        "rows-percentage": [10000],
+        "columns-percentage": [3000, 4000, 3000],
+        "cell-child-map": [[0, 1, 2]],
+        "sensitivity-radius": 20,
+        "show-spacing": true,
+        "spacing": 8
+      }
+    },
+    {
+      "uuid": "{A1B2C3D4-2222-4A2B-9C3D-00E800A10002}",
+      "name": "LHS Quad",
+      "type": "grid",
+      "info": {
+        "rows": 2,
+        "columns": 2,
+        "rows-percentage": [5000, 5000],
+        "columns-percentage": [5000, 5000],
+        "cell-child-map": [[0, 1], [2, 3]],
+        "sensitivity-radius": 20,
+        "show-spacing": true,
+        "spacing": 8
+      }
+    },
+    {
+      "uuid": "{A1B2C3D4-3333-4A2B-9C3D-00E800A10003}",
+      "name": "LHS Halves",
+      "type": "grid",
+      "info": {
+        "rows": 1,
+        "columns": 2,
+        "rows-percentage": [10000],
+        "columns-percentage": [5000, 5000],
+        "cell-child-map": [[0, 1]],
+        "sensitivity-radius": 20,
+        "show-spacing": true,
+        "spacing": 8
+      }
+    }
+  ]
+}

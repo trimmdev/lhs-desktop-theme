@@ -1,0 +1,23 @@
+{
+  "background": "#0A0807",
+  "black": "#1B1612",
+  "blue": "#5AA8E0",
+  "brightBlack": "#6F6557",
+  "brightBlue": "#7DBDE8",
+  "brightCyan": "#9AD1C7",
+  "brightGreen": "#83C99B",
+  "brightPurple": "#C09BE8",
+  "brightRed": "#E57A53",
+  "brightWhite": "#FDF6E8",
+  "brightYellow": "#ECBE5B",
+  "cursorColor": "#E8A13A",
+  "cyan": "#7FBFB4",
+  "foreground": "#F5ECD9",
+  "green": "#5FB87A",
+  "name": "Liberty Hill Dusk",
+  "purple": "#A878D8",
+  "red": "#E0604F",
+  "selectionBackground": "#4D2C14",
+  "white": "#CDBFA6",
+  "yellow": "#E8A13A"
+}

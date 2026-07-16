@@ -1,0 +1,13 @@
+{
+  "AppVersion": "2.2.1.0",
+  "Title": "Liberty Hill Studios — Living Dusk",
+  "Thumbnail": "thumbnail.jpg",
+  "Preview": null,
+  "Desc": "The studio's signature Texas Hill Country dusk: layered ridgelines, god-rays, drifting valley mist, embers that become fireflies, and a sky that follows the real clock from golden afternoon to deep night.",
+  "Author": "Liberty Hill Studios",
+  "License": "MIT",
+  "Contact": "https://libertyhillstudio.com",
+  "Type": 1,
+  "Arguments": "",
+  "FileName": "index.html"
+}
