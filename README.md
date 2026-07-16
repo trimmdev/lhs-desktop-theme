@@ -25,6 +25,11 @@ Everything is **user-level and reversible**. One or two UAC prompts may appear f
 installers. See the end-of-install output for the three optional manual finishing touches
 (avatar, gold pointer, lock screen).
 
+## The field guide
+
+An animated walkthrough of every feature and shortcut lives at [`docs/guide.html`](docs/guide.html) —
+open it in any browser after cloning.
+
 ## What's inside
 
 - **`wallpaper/lhs-dusk.html`** — the living wallpaper. Self-contained single file
