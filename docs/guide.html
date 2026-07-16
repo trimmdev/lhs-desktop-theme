@@ -357,19 +357,17 @@
 
   <section class="card">
     <div class="eyebrow">Sound</div>
-    <h2>The studio speaks in chimes</h2>
-    <div class="chime"><div class="dot"></div><p><b>Warm two-note chime</b> — something <em>finished</em>: a build completed, a Claude session hit a stopping point.</p></div>
-    <div class="chime"><div class="dot" style="background:var(--ember); box-shadow:0 0 8px rgba(212,84,43,.7)"></div><p><b>Low bell</b> — something <em>needs you</em>: a question, a permission prompt, a decision.</p></div>
-    <p class="note">Files live in <span class="path">Pictures\Liberty Hill Studios\sounds</span>. Swap or silence them under Settings → Sound scheme.</p>
+    <h2>Studio chimes — strictly opt-in</h2>
+    <p>The kit ships two short chimes (a warm "finished" note and a low "needs you" bell), but they're <b>off by default</b> — system sounds are personal, and they never replace yours unless you ask. Opt in with <code>.\install.ps1 -Chimes</code>; the WAVs live in <span class="path">sounds\</span> for auditioning first.</p>
   </section>
 
   <section class="card">
     <div class="eyebrow">Finishing touches</div>
-    <h2>Three clicks only you can make</h2>
+    <h2>Optional finishing touches</h2>
     <ul class="checklist">
-      <li><p><b>Account avatar</b> — Settings → Accounts → Your info → <em>Choose a file</em> → <span class="path">Pictures\Liberty Hill Studios\avatar-448.png</span>. Puts the glowing Lone Star in Start, login, and every UAC prompt.</p></li>
-      <li><p><b>Gold pointer</b> — Settings → Accessibility → Mouse pointer → rightmost style. The gold is pre-staged; one click applies it everywhere.</p></li>
-      <li><p><b>Everything Toolbar assistant</b> — if the taskbar search swap isn't done, its tray icon walks you through it in two clicks.</p></li>
+      <li><p><b>Gold pointer</b> — Settings → Accessibility → Mouse pointer → Custom style → Choose another color → <code>#E8A13A</code>. Gold cursor everywhere, natively crisp at any size.</p></li>
+      <li><p><b>Account avatar</b> — Settings → Accounts → Your info → <em>Choose a file</em> → <span class="path">icons\avatar-448.png</span>. Puts the glowing Lone Star in Start, login, and every UAC prompt. (Requires activated Windows.)</p></li>
+      <li><p><b>Everything Toolbar pin</b> — right-click its taskbar icon → <em>Pin to taskbar</em>. Windows only allows this by hand.</p></li>
     </ul>
   </section>
 
