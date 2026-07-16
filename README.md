@@ -17,7 +17,7 @@ chimes, icons, and an optional keyboard-driven search/navigation stack.
 ```powershell
 git clone https://github.com/trimmdev/lhs-desktop-theme
 cd lhs-desktop-theme
-.\install.ps1              # wallpaper + taskbar + theme + terminal + chimes
+.\install.ps1              # wallpaper + taskbar + theme + terminal + chimes (opt-in)
 .\install.ps1 -NavStack    # ...plus Everything, PowerToys FancyZones, Flow Launcher
 ```
 

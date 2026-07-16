@@ -16,8 +16,8 @@
 .PARAMETER SkipApps
   Skip all winget installs (deploy configs/assets only — assumes apps are present).
 
-.PARAMETER NoSounds
-  Skip the notification chime sound scheme.
+.PARAMETER Chimes
+  Opt in to the studio notification chime sound scheme (off by default).
 
 .PARAMETER NoTerminal
   Skip the Windows Terminal color scheme.
@@ -29,7 +29,7 @@
 param(
   [switch]$NavStack,
   [switch]$SkipApps,
-  [switch]$NoSounds,
+  [switch]$Chimes,
   [switch]$NoTerminal
 )
 
@@ -127,8 +127,8 @@ if (-not $NoTerminal) {
   } else { Write-Host "[terminal] Windows Terminal not found - skipped" }
 }
 
-# ── 6. Studio notification chimes ──────────────────────────────────────────
-if (-not $NoSounds) {
+# ── 6. Studio notification chimes (opt-in — taste varies) ──────────────────
+if ($Chimes) {
   $map = @{
     "SystemAsterisk"       = "$assets\sounds\lhs-chime.wav"
     "SystemExclamation"    = "$assets\sounds\lhs-alert.wav"
