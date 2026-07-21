@@ -1,0 +1,108 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:transparent}canvas{display:block}</style>
+</head><body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+/* Liberty Hill Studios app/folder icon, rendered fresh at any size.
+   macOS (Big Sur+) geometry: on a 1024 canvas the icon body is an 824x824
+   rounded square, corner radius 185.4, centred — the surrounding margin is
+   transparent and is what makes it sit correctly next to system icons.
+   ?size=N   canvas size
+   ?flat=1   fill the whole canvas (Windows/legacy style, no macOS margin) */
+const qs = new URLSearchParams(location.search);
+const S = Math.max(16, parseInt(qs.get("size") || "1024", 10));
+const FLAT = qs.get("flat") === "1";
+const c = document.getElementById("c"), x = c.getContext("2d");
+c.width = c.height = S;
+
+const k = S / 1024;                       // everything below is authored at 1024
+const body = FLAT ? S : 824 * k;
+const off  = (S - body) / 2;
+const rad  = FLAT ? S * 0.2246 : 185.4 * k;
+
+function squircle(px, py, w, h, r){
+  x.beginPath();
+  x.moveTo(px + r, py);
+  x.arcTo(px + w, py,     px + w, py + h, r);
+  x.arcTo(px + w, py + h, px,     py + h, r);
+  x.arcTo(px,     py + h, px,     py,     r);
+  x.arcTo(px,     py,     px + w, py,     r);
+  x.closePath();
+}
+
+x.clearRect(0, 0, S, S);
+squircle(off, off, body, body, rad);
+x.save();
+x.clip();
+
+/* ink field, very slightly warmer toward the base like the dusk scene */
+const sky = x.createLinearGradient(0, off, 0, off + body);
+sky.addColorStop(0,    "#0a0807");
+sky.addColorStop(0.62, "#160f0b");
+sky.addColorStop(1,    "#1d120c");
+x.fillStyle = sky;
+x.fillRect(off, off, body, body);
+
+/* far ember hill — muted to match the approved Windows mark; the ember is a
+   brand tone here, not a lit surface */
+const h1 = x.createLinearGradient(0, off + body*0.60, 0, off + body);
+h1.addColorStop(0, "#8f3a1a");
+h1.addColorStop(1, "#66280f");
+x.fillStyle = h1;
+x.beginPath();
+x.moveTo(off, off + body*0.82);
+x.bezierCurveTo(off + body*0.22, off + body*0.66, off + body*0.34, off + body*0.75, off + body*0.52, off + body*0.72);
+x.bezierCurveTo(off + body*0.70, off + body*0.69, off + body*0.82, off + body*0.60, off + body, off + body*0.66);
+x.lineTo(off + body, off + body);
+x.lineTo(off, off + body);
+x.closePath();
+x.fill();
+
+/* near hill, darker — the silhouette that grounds the mark */
+const h2 = x.createLinearGradient(0, off + body*0.80, 0, off + body);
+h2.addColorStop(0, "#4a1c0d");
+h2.addColorStop(1, "#230e07");
+x.fillStyle = h2;
+x.beginPath();
+x.moveTo(off, off + body*0.91);
+x.bezierCurveTo(off + body*0.18, off + body*0.83, off + body*0.40, off + body*0.92, off + body*0.60, off + body*0.87);
+x.bezierCurveTo(off + body*0.78, off + body*0.83, off + body*0.90, off + body*0.86, off + body, off + body*0.845);
+x.lineTo(off + body, off + body);
+x.lineTo(off, off + body);
+x.closePath();
+x.fill();
+
+/* the Lone Star — same 48-unit path as the wallpaper lockup */
+const STAR = new Path2D("M24 8l3.1 6.6 7.2.9-5.3 5 1.4 7.1L24 24.2l-6.4 3.4 1.4-7.1-5.3-5 7.2-.9L24 8z");
+const starS = body * 0.60;                 // star box, in canvas px
+x.save();
+x.translate(off + body/2, off + body*0.445);
+const sc = starS / 32;
+x.scale(sc, sc);
+x.translate(-24, -17.8);
+const sg = x.createLinearGradient(10, 4, 38, 30);
+sg.addColorStop(0,   "#f3d693");
+sg.addColorStop(0.5, "#e8a13a");
+sg.addColorStop(1,   "#b3661f");
+x.shadowColor = "rgba(232,161,58,0.55)";
+x.shadowBlur = 26 * k * (body/824);
+x.fillStyle = sg;
+x.fill(STAR);
+x.shadowBlur = 0;
+x.restore();
+
+x.restore();                                // release the squircle clip
+
+/* gold hairline, inside the edge — an accent, never a fill (studio law) */
+if (S >= 32){
+  const lw = Math.max(1, 6 * k);
+  squircle(off + lw/2, off + lw/2, body - lw, body - lw, Math.max(1, rad - lw/2));
+  x.lineWidth = lw;
+  x.strokeStyle = "rgba(236,190,91,0.55)";
+  x.stroke();
+}
+window.__ready = true;
+</script>
+</body></html>

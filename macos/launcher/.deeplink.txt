@@ -1,0 +1,1 @@
+raycast://theme?author=Liberty%20Hill%20Studios&authorUsername=libertyhillstudios&version=1&name=Liberty%20Hill%20Dusk&appearance=dark&colors=%230A0807,%231B1612,%23F5ECD9,%234D2C14,%23E8A13A,%23E0604F,%23D4542B,%23E8A13A,%235FB87A,%235AA8E0,%23A878D8,%23C09BE8

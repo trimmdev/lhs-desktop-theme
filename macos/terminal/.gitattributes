@@ -1,0 +1,21 @@
+# Everything in this folder is consumed on macOS. Keep LF line endings in the
+# working tree regardless of the checkout platform.
+#
+# WHY THIS FILE EXISTS: this repo is authored on Windows with
+# core.autocrlf=true, which rewrites text files to CRLF in the working tree. If
+# make-terminal-app-profile.sh reaches a Mac with CRLF endings - by being copied
+# or zipped from a Windows working tree rather than cloned - it fails with:
+#     zsh: ./make-terminal-app-profile.sh: bad interpreter: /bin/bash^M
+# which reads as "the script is broken" rather than "the line endings are wrong".
+# `eol=lf` pins the working-tree ending on every platform and prevents that.
+#
+# Scoped to this folder on purpose: it cannot affect the Windows side of the
+# repo (install.ps1, the Windows Terminal scheme, FancyZones layouts).
+
+*.sh          text eol=lf
+*.toml        text eol=lf
+*.lua         text eol=lf
+*.conf        text eol=lf
+*.md          text eol=lf
+*.ghostty     text eol=lf
+*.itermcolors text eol=lf

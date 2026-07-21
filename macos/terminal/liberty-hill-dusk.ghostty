@@ -1,0 +1,70 @@
+# Liberty Hill Dusk - Ghostty colour scheme
+# Liberty Hill Studios . macOS port of the Windows Terminal scheme in
+# <repo>/terminal/liberty-hill-dusk.json . palette is byte-identical.
+#
+# A Ghostty theme is just another Ghostty config file: `key = value` lines.
+# The format has no name field; the scheme is "Liberty Hill Dusk".
+#
+# INSTALL - IMPORTANT PATH GOTCHA:
+#   On macOS, Ghostty reads user THEMES only from the XDG path
+#     ~/.config/ghostty/themes/
+#   NOT from ~/Library/Application Support/com.mitchellh.ghostty/themes/.
+#   (The CONFIG file is read from both; themes are XDG-only. Upstream
+#   discussion #12886 asks for this to change - it has not, as of writing.)
+#
+#   Safest install - reference it by ABSOLUTE PATH, which bypasses theme
+#   discovery entirely and therefore cannot be broken by that gotcha:
+#
+#     mkdir -p ~/.config/ghostty/themes
+#     cp liberty-hill-dusk.ghostty ~/.config/ghostty/themes/liberty-hill-dusk
+#
+#   then add ONE line to whichever config file you actually have
+#   (~/Library/Application Support/com.mitchellh.ghostty/config, or
+#    .../config.ghostty, or ~/.config/ghostty/config):
+#
+#     theme = /Users/YOURNAME/.config/ghostty/themes/liberty-hill-dusk
+#
+#   `theme` does NOT expand `~`, so write the full /Users/... path.
+#
+#   Alternative, equally reversible - keep the .ghostty extension and include
+#   the file directly instead of registering it as a theme:
+#
+#     config-file = /Users/YOURNAME/.config/ghostty/themes/liberty-hill-dusk.ghostty
+#
+#   Reload live: cmd+shift+,      List themes: ghostty +list-themes
+#
+# PALETTE
+#   ink-950 #0A0807   parchment #F5ECD9   gold-400 #E8A13A  gold-300 #ECBE5B
+#   gold-600 #B3661F  ember-400 #D4542B   ember-300 #E57A53
+# Design law: gold/ember are ACCENTS only - cursor and selection. The only
+# large surface is ink-950.
+
+background = #0A0807
+foreground = #F5ECD9
+
+# gold-400 block cursor with an ink-950 glyph punched through it
+cursor-color = #E8A13A
+cursor-text  = #0A0807
+
+selection-background = #4D2C14
+selection-foreground = #F5ECD9
+
+# normal
+palette = 0=#1B1612
+palette = 1=#E0604F
+palette = 2=#5FB87A
+palette = 3=#E8A13A
+palette = 4=#5AA8E0
+palette = 5=#A878D8
+palette = 6=#7FBFB4
+palette = 7=#CDBFA6
+
+# bright
+palette = 8=#6F6557
+palette = 9=#E57A53
+palette = 10=#83C99B
+palette = 11=#ECBE5B
+palette = 12=#7DBDE8
+palette = 13=#C09BE8
+palette = 14=#9AD1C7
+palette = 15=#FDF6E8

@@ -1,0 +1,38 @@
+# Everything under macos/ is consumed on macOS. Pin LF in the working tree on
+# every platform.
+#
+# WHY THIS FILE EXISTS: this repo is authored on Windows with
+# core.autocrlf=true, which rewrites text files to CRLF in the working tree.
+# macos/terminal/.gitattributes already made this argument for one helper
+# script -- but install.sh and uninstall.sh, the two files a stranger actually
+# runs, sat one directory up with no protection at all. A CRLF install.sh
+# reaching a Mac (by zip, or by copying a Windows working tree rather than
+# cloning) fails with:
+#     zsh: ./install.sh: bad interpreter: /bin/bash^M
+# and the re-exec guard at the top of the file cannot help: the kernel is
+# looking for an interpreter literally named "/bin/bash\r". Even `bash
+# install.sh` then dies on `set -o errexit\r` ("invalid option name"), and
+# every <<'APPLESCRIPT' / <<'JXA' heredoc would carry a trailing CR into
+# osascript, so the wallpaper, the icon and the read-back verification would
+# all fail at once.
+#
+# Scoped to macos/ on purpose: the Windows side of the repo (install.ps1, the
+# Windows Terminal scheme, the FancyZones layouts) keeps its own behaviour.
+#
+# After adding or changing this file:  git add --renormalize macos/
+# Verify with:  git ls-files --eol -- macos/     (must show w/lf)
+
+*.sh               text eol=lf
+*.md               text eol=lf
+*.json             text eol=lf
+*.alfredappearance text eol=lf
+*.toml             text eol=lf
+*.lua              text eol=lf
+*.conf             text eol=lf
+*.ghostty          text eol=lf
+*.itermcolors      text eol=lf
+*.txt              text eol=lf
+*.terminal         text eol=lf
+
+*.icns binary
+*.png  binary

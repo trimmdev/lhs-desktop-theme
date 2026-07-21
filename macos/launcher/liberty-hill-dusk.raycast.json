@@ -1,0 +1,21 @@
+{
+  "author": "Liberty Hill Studios",
+  "authorUsername": "libertyhillstudios",
+  "version": "1",
+  "name": "Liberty Hill Dusk",
+  "appearance": "dark",
+  "colors": {
+    "background": "#0A0807",
+    "backgroundSecondary": "#1B1612",
+    "text": "#F5ECD9",
+    "selection": "#4D2C14",
+    "loader": "#E8A13A",
+    "red": "#E0604F",
+    "orange": "#D4542B",
+    "yellow": "#E8A13A",
+    "green": "#5FB87A",
+    "blue": "#5AA8E0",
+    "purple": "#A878D8",
+    "magenta": "#C09BE8"
+  }
+}

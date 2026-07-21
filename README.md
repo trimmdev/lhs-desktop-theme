@@ -22,6 +22,26 @@ cd lhs-desktop-theme
 .\install.ps1 -NavStack    # ...plus Everything, PowerToys FancyZones, Flow Launcher
 ```
 
+### On a Mac
+
+There is a macOS port in **[`macos/`](macos/)** — the *same* wallpaper file, so the sun
+and the moon behave identically. It is wallpaper-first: the default install changes
+exactly one thing, the desktop picture. Terminal schemes, launcher themes, the gold
+accent and the studio icon are each behind their own opt-in flag.
+
+```bash
+cd macos
+./install.sh --dry-run     # prints every action, changes nothing — start here
+./install.sh
+```
+
+Optional extras: **[`macos/screensaver/`](macos/screensaver/)** runs the same living
+scene as the screen saver, so an idle or locked Mac shows the animated dusk.
+
+> The macOS side was written without a Mac to test on. The wallpaper itself is a
+> self-contained web page and is genuinely cross-platform; anything that touches system
+> settings is best-effort and is documented as such. Run `--dry-run` first.
+
 Everything is **user-level and reversible**. One or two UAC prompts may appear for app
 installers. See the end-of-install output for the three optional manual finishing touches
 (avatar, gold pointer, lock screen).
@@ -33,6 +53,10 @@ open it in any browser after cloning.
 
 ## What's inside
 
+- **`macos/`** — the macOS port. Shares this exact wallpaper file rather than copying it,
+  so the two platforms cannot drift. Wallpaper-first installer, Liberty Hill Dusk schemes
+  for six terminal emulators, Raycast + Alfred themes, an `.icns`, and an optional
+  animated screen saver. See [`macos/README.md`](macos/README.md).
 - **`wallpaper/lhs-dusk.html`** — the living wallpaper. Self-contained single file
   (Sora font embedded, zero network calls). Canvas-rendered at native resolution on any
   monitor: noise-generated ridgelines, dithered sky gradient, aerially-shaded hills,

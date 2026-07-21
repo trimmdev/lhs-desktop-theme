@@ -31,7 +31,7 @@
      with a HUD on it is just clutter. */
   #clock {
     position: fixed; left: 2.4vh; bottom: 2.4vh; display: none; white-space: pre;
-    font: 500 1.85vh/1.5 Sora, "Segoe UI", sans-serif; color: rgba(245,236,217,0.80);
+    font: 500 1.85vh/1.5 Sora, "Segoe UI", "Helvetica Neue", sans-serif; color: rgba(245,236,217,0.80);
     letter-spacing: 0.05em; text-shadow: 0 1px 7px rgba(0,0,0,0.85); pointer-events: none;
   }
 </style>
@@ -71,6 +71,14 @@ let SCENE_T0 = REAL_T0;
 }
 const SPEED = Math.max(1, parseFloat(qs.get("speed")) || 1);
 function sceneNow(){ return new Date(SCENE_T0 + (Date.now() - REAL_T0)*SPEED); }
+
+/* ?nosleep=1 — keep rendering even while the host reports the page as hidden.
+   A macOS screen-saver host (legacyScreenSaver) reports visibilityState
+   "hidden" for its own web view, so the normal pause-when-covered behaviour
+   would freeze the scene to a still frame with no error and no way to tell it
+   apart from working. Wallpaper hosts want the opposite — pausing while
+   covered is most of the CPU saving — so this stays opt-in. */
+const NOSLEEP = qs.get("nosleep") === "1";
 
 const bgC = document.getElementById("bg"), fxC = document.getElementById("fx");
 const bg = bgC.getContext("2d"), fx = fxC.getContext("2d");
@@ -895,7 +903,7 @@ function drawLockup(t, m, introK){
   fx.save();
   fx.globalAlpha = a;
   fx.textAlign = "center"; fx.textBaseline = "alphabetic";
-  fx.font = `700 ${titleSize}px Sora, "Segoe UI", sans-serif`;
+  fx.font = `700 ${titleSize}px Sora, "Segoe UI", "Helvetica Neue", sans-serif`;
   if ("letterSpacing" in fx) fx.letterSpacing = `${-titleSize*0.025}px`;
   const ty = H*0.155 + starS*0.85 + titleSize*0.95;
   fx.shadowColor = "rgba(0,0,0,0.55)"; fx.shadowBlur = titleSize*0.18; fx.shadowOffsetY = titleSize*0.03;
@@ -907,7 +915,7 @@ function drawLockup(t, m, introK){
 
   // STUDIOS + flanking rules
   const subSize = titleSize*0.285;
-  fx.font = `600 ${subSize}px Sora, "Segoe UI", sans-serif`;
+  fx.font = `600 ${subSize}px Sora, "Segoe UI", "Helvetica Neue", sans-serif`;
   if ("letterSpacing" in fx) fx.letterSpacing = `${subSize*0.46}px`;
   const sy = ty + titleSize*0.62;
   fx.fillStyle = GOLD.g300; fx.globalAlpha = 0.92*a;
@@ -928,9 +936,34 @@ function drawLockup(t, m, introK){
 let last = 0, acc = 0, t = STILL ? 40 : 0, introT = 0, lastBGPaint = -10, lastMoodKey = "";
 const INTRO_DUR = STILL ? 0 : 2.6;
 
+let lastRAF = 0, fallbackTimer = null;
+
+/* WebKit stops servicing requestAnimationFrame when it believes the view is
+   occluded, and some wallpaper/screen-saver hosts trigger that falsely. Without
+   a watchdog the scene simply stops with no error. If rAF has not fired for a
+   second, drive render() from a timer instead, and hand control back the moment
+   rAF recovers. */
+function tick(){
+  const now = performance.now();
+  const dtMs = now - last;
+  last = now;
+  const dt = Math.min(Math.max(dtMs, 0)/1000, 0.1);
+  t += dt; introT += dt;
+  render(dt);
+}
+function startWatchdog(){
+  setInterval(function(){
+    const stalled = performance.now() - lastRAF > 1000;
+    if (stalled && !fallbackTimer)      fallbackTimer = setInterval(tick, 33);
+    else if (!stalled && fallbackTimer) { clearInterval(fallbackTimer); fallbackTimer = null; }
+  }, 2000);
+}
+
 function frame(now){
   requestAnimationFrame(frame);
-  if (document.hidden) { last = now; return; }
+  lastRAF = now;
+  if (!NOSLEEP && document.hidden) { last = now; return; }
+  if (fallbackTimer) { clearInterval(fallbackTimer); fallbackTimer = null; }
   const dtMs = now - last;
   if (dtMs < 31) return;                       // ~30fps cap
   last = now;
@@ -1129,9 +1162,17 @@ function render(dt){
 }
 
 /* ── Boot ───────────────────────────────────────────────────────────────── */
+let cssW = 0, cssH = 0;
 function resize(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);  // full native pixels — crisp on any scaling
-  W = Math.round(innerWidth*DPR); H = Math.round(innerHeight*DPR);
+  const w = innerWidth  || document.documentElement.clientWidth  || 0;
+  const h = innerHeight || document.documentElement.clientHeight || 0;
+  // Some hosts hand back a 0x0 view for the first frame or two. Building the
+  // scene at that size yields a zero-width canvas and a NaN aspect scaler, and
+  // nothing ever recovers — so wait for a real size instead.
+  if (w < 8 || h < 8) return false;
+  cssW = w; cssH = h;
+  W = Math.round(w*DPR); H = Math.round(h*DPR);
   ASPK = Math.max(1, (W/H)/1.778);
   buildTerrain();
   buildFog();
@@ -1140,17 +1181,27 @@ function resize(){
   grainPattern = null;
   seedField();
   lastMoodKey = ""; // force bg repaint
+  return true;
 }
 addEventListener("resize", resize);
+/* Not every host fires a resize event — poll cheaply so a late or changed
+   viewport (or a display swap) is still picked up. */
+setInterval(function(){
+  const w = innerWidth || document.documentElement.clientWidth || 0;
+  const h = innerHeight || document.documentElement.clientHeight || 0;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (w >= 8 && h >= 8 && (w !== cssW || h !== cssH || dpr !== DPR)) resize();
+}, 1000);
 
-document.fonts.load('700 100px Sora').then(() => document.fonts.load('600 100px Sora')).finally(() => {
-  resize();
+document.fonts.load('700 100px Sora').then(() => document.fonts.load('600 100px Sora')).finally(function boot(){
+  if (!resize()) { setTimeout(boot, 100); return; }   // host has not given us a real viewport yet
   if (STILL){
     // settle particles into a lived-in state, render one deterministic frame
     for (let i = 0; i < 60; i++){ t += 1/30; render(1/30); }
     window.__ready = true;
   } else {
-    requestAnimationFrame(now => { last = now; requestAnimationFrame(frame); });
+    requestAnimationFrame(now => { last = now; lastRAF = now; requestAnimationFrame(frame); });
+    startWatchdog();
   }
 });
 </script>

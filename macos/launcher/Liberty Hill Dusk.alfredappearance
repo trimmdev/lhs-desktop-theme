@@ -1,0 +1,71 @@
+{
+  "alfredtheme": {
+    "name": "Liberty Hill Dusk",
+    "credit": "Liberty Hill Studios",
+
+    "visualEffectMode": 2,
+
+    "window": {
+      "color": "#0A080799",
+      "borderColor": "#E8A13A4D",
+      "borderPadding": 0,
+      "blur": 0,
+      "roundness": 12,
+      "width": 660,
+      "paddingHorizontal": 10,
+      "paddingVertical": 12
+    },
+
+    "search": {
+      "background": "#0A080700",
+      "backgroundSelected": "#4D2C14CC",
+      "roundness": 4,
+      "paddingHorizontal": 8,
+      "paddingVertical": 4,
+      "spacing": 12,
+      "text": {
+        "font": "System Light",
+        "size": 32,
+        "color": "#F5ECD9FF",
+        "colorSelected": "#FDF6E8FF"
+      }
+    },
+
+    "result": {
+      "backgroundSelected": "#E8A13A33",
+      "roundness": 6,
+      "iconSize": 40,
+      "iconPaddingHorizontal": 10,
+      "paddingVertical": 8,
+      "textSpacing": 6,
+      "text": {
+        "font": "System",
+        "size": 16,
+        "color": "#F5ECD9FF",
+        "colorSelected": "#FDF6E8FF"
+      },
+      "subtext": {
+        "font": "System Light",
+        "size": 12,
+        "color": "#CDBFA6A6",
+        "colorSelected": "#ECBE5BD9"
+      },
+      "shortcut": {
+        "font": "System Light",
+        "size": 13,
+        "color": "#ECBE5BA6",
+        "colorSelected": "#ECBE5BE6"
+      }
+    },
+
+    "separator": {
+      "color": "#E8A13A33",
+      "thickness": 1
+    },
+
+    "scrollbar": {
+      "color": "#E8A13A73",
+      "thickness": 2
+    }
+  }
+}

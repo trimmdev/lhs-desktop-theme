@@ -1,0 +1,63 @@
+# Liberty Hill Dusk - Alacritty colour scheme
+# Liberty Hill Studios . macOS port of the Windows Terminal scheme in
+# <repo>/terminal/liberty-hill-dusk.json . palette is byte-identical.
+#
+# FORMAT: TOML (Alacritty 0.13+). Alacritty used YAML (alacritty.yml) before
+# 0.13 - on an older build this file is IGNORED SILENTLY. Check first:
+#     alacritty --version
+#
+# INSTALL: this is an imported theme fragment, not a standalone config.
+#     mkdir -p ~/.config/alacritty/themes
+#     cp liberty-hill-dusk.alacritty.toml ~/.config/alacritty/themes/
+# then add to ~/.config/alacritty/alacritty.toml:
+#     [general]
+#     import = ["~/.config/alacritty/themes/liberty-hill-dusk.alacritty.toml"]
+#
+# The TOML theme format has no name field; the scheme is "Liberty Hill Dusk".
+# Note the key is `magenta`, NOT `purple` - Alacritty uses the ANSI name.
+# [colors.dim] is deliberately omitted: Alacritty derives dim from normal, and
+# inventing six colours the studio palette does not define would be a fake.
+#
+# PALETTE
+#   ink-950 #0A0807   parchment #F5ECD9   gold-400 #E8A13A  gold-300 #ECBE5B
+#   gold-600 #B3661F  ember-400 #D4542B   ember-300 #E57A53
+# Design law: gold/ember are ACCENTS only - cursor, selection, links. The only
+# large surface here is ink-950.
+
+[colors.primary]
+background        = "#0A0807"
+foreground        = "#F5ECD9"
+bright_foreground = "#FDF6E8"
+
+[colors.cursor]
+# gold-400 block cursor with ink-950 text punched through it
+text   = "#0A0807"
+cursor = "#E8A13A"
+
+[colors.vi_mode_cursor]
+text   = "#0A0807"
+cursor = "#ECBE5B"
+
+[colors.selection]
+text       = "#F5ECD9"
+background = "#4D2C14"
+
+[colors.normal]
+black   = "#1B1612"
+red     = "#E0604F"
+green   = "#5FB87A"
+yellow  = "#E8A13A"
+blue    = "#5AA8E0"
+magenta = "#A878D8"
+cyan    = "#7FBFB4"
+white   = "#CDBFA6"
+
+[colors.bright]
+black   = "#6F6557"
+red     = "#E57A53"
+green   = "#83C99B"
+yellow  = "#ECBE5B"
+blue    = "#7DBDE8"
+magenta = "#C09BE8"
+cyan    = "#9AD1C7"
+white   = "#FDF6E8"
