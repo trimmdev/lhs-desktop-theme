@@ -260,18 +260,23 @@
 
   <section class="card">
     <div class="eyebrow">Wallpaper</div>
-    <h2>The Living Dusk follows your clock</h2>
-    <p>Both monitors render the studio's Hill-Country dusk as a <em>live scene</em> — drifting valley mist, rising embers, god-rays, shooting stars — drawn natively at each monitor's exact resolution. It isn't a video; it's the brand painted in real time, and it changes with the actual hour:</p>
+    <h2>The Living Dusk follows the real sun</h2>
+    <p>Both monitors render the studio's Hill-Country dusk as a <em>live scene</em> — drifting valley mist, rising embers, god-rays, backlit cloud decks, shooting stars — drawn natively at each monitor's exact resolution. It isn't a video; it's the brand painted in real time. And it doesn't just watch the clock: it computes the sun's true altitude for the site's latitude, so sunrise, golden hour, twilight and night <em>drift with the seasons</em> the way the real sky does.</p>
     <div class="moods">
       <div class="mood-bar"><div class="mood-now" id="moodNow"></div></div>
       <div class="mood-labels"><span>Dawn</span><span>Golden afternoon</span><span>Signature dusk</span><span>Deep night</span></div>
     </div>
-    <p class="note">After dark the embers become fireflies and a faint Milky Way appears. Every login plays a 2.6-second sunrise intro.</p>
+    <p class="note">Sunrise and sunset are different skies — morning runs violet through rose to peach, evening runs deep ember — because the overnight air is cleaner. The sun genuinely rises from behind the ridge and sets back down behind it. After dark the embers become fireflies, the sky falls to near black and the Milky Way comes out. Every login plays a 2.6-second sunrise intro.</p>
+    <h3>The moon is real too</h3>
+    <p>The moon rides its true position and shows its true phase for the date — the terminator is a real projected ellipse, the dark limb carries earthshine, and the maria tilt with the sky. It rises and sets when it actually does, so on a first-quarter night it will have set by midnight and the sky will simply be empty. That's correct, not a bug.</p>
     <h3>Facts worth knowing</h3>
     <ul>
-      <li><b>Cost:</b> ~2–3% CPU total, and it <b>auto-pauses whenever a fullscreen game runs</b> — zero cost while you play.</li>
+      <li><b>Cost:</b> about <b>0.2% of one CPU core per monitor</b> (measured, both screens live), and it <b>auto-pauses whenever a fullscreen game runs</b> — zero cost while you play.</li>
       <li><b>Master file:</b> <span class="path">Pictures\Liberty Hill Studios\lhs-dusk.html</span> — Lively runs a synced copy.</li>
-      <li><b>Pin a mood forever:</b> add <code>?mood=dusk</code> (or <code>night</code> / <code>day</code>) to the wallpaper URL in Lively.</li>
+      <li><b>Pin a mood forever:</b> add <code>?mood=dusk</code> (or <code>dawn</code> / <code>night</code> / <code>day</code>) to the wallpaper URL in Lively.</li>
+      <li><b>Jump to any moment:</b> <code>?at=2026-07-21T21:30</code> (or <code>?at=+9</code> hours) — handy for checking the moon without waiting for nightfall.</li>
+      <li><b>Watch a whole day:</b> <code>?speed=1440</code> runs a full 24 hours in one minute, with a time / sun / moon readout in the corner.</li>
+      <li><b>Easy on the eyes late:</b> after ~22:30 the whole scene eases down and warms slightly, lifting again before dawn.</li>
       <li><b>Lively tray icon</b> (bottom-right): pause, change, or close the wallpaper anytime.</li>
     </ul>
   </section>

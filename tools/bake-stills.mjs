@@ -1,7 +1,7 @@
 // Bake pixel-perfect wallpaper stills at any resolution.
 //   npm i playwright   (browsers: npx playwright install chromium)
 //   node tools/bake-stills.mjs [WxH ...]     e.g. node tools/bake-stills.mjs 3840x2160 1920x1080
-// No args = the full standard set. Moods: pass --moods dusk,night,day (default dusk).
+// No args = the full standard set. Moods: pass --moods dusk,dawn,night,day (default dusk).
 import { chromium } from "playwright";
 import { pathToFileURL } from "url";
 import { mkdirSync } from "fs";

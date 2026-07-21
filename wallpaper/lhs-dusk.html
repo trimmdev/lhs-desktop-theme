@@ -20,11 +20,27 @@
   }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0807; cursor: default; }
   canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  /* Late-hour comfort grade. A multiply layer costs the compositor one cheap blend
+     of a solid colour and covers everything — both canvases and the wordmark —
+     without a per-frame full-screen fill on either canvas. */
+  #grade {
+    position: fixed; inset: 0; pointer-events: none; display: none;
+    mix-blend-mode: multiply; background: rgb(154,144,132); opacity: 0;
+  }
+  /* Readout, shown only when the clock is being run fast — otherwise a wallpaper
+     with a HUD on it is just clutter. */
+  #clock {
+    position: fixed; left: 2.4vh; bottom: 2.4vh; display: none; white-space: pre;
+    font: 500 1.85vh/1.5 Sora, "Segoe UI", sans-serif; color: rgba(245,236,217,0.80);
+    letter-spacing: 0.05em; text-shadow: 0 1px 7px rgba(0,0,0,0.85); pointer-events: none;
+  }
 </style>
 </head>
 <body>
 <canvas id="bg"></canvas>
 <canvas id="fx"></canvas>
+<div id="grade"></div>
+<div id="clock"></div>
 <script>
 "use strict";
 /* ── Brand palette (src/lib/palette.ts) ─────────────────────────────────── */
@@ -36,10 +52,31 @@ const HILLS = ["#3a2114", "#24140c", "#130a06"]; // far → near
 
 const qs = new URLSearchParams(location.search);
 const STILL = qs.get("still") === "1";
-const MOOD_PIN = qs.get("mood"); // day|dusk|night|null
+const MOOD_PIN = qs.get("mood"); // day|dusk|dawn|night|null
+
+/* ?at=  — run the scene at another moment, so the sky and the moon can be checked
+   without waiting for the right hour. Accepts a local datetime ("2026-07-21T21:30")
+   or a signed hour offset ("+9", "-3.5").
+   ?speed=N — run the clock N times faster. speed=1440 puts a full day in one minute.
+   Everything downstream reads sceneNow(), so the sun, the moon, the palette and the
+   late-hour grade all follow together instead of being faked separately. */
+const REAL_T0 = Date.now();
+let SCENE_T0 = REAL_T0;
+{
+  const at = qs.get("at");
+  if (at){
+    if (/^[-+]/.test(at)) SCENE_T0 = REAL_T0 + (parseFloat(at) || 0)*3600000;
+    else { const p = Date.parse(at); if (!isNaN(p)) SCENE_T0 = p; }
+  }
+}
+const SPEED = Math.max(1, parseFloat(qs.get("speed")) || 1);
+function sceneNow(){ return new Date(SCENE_T0 + (Date.now() - REAL_T0)*SPEED); }
 
 const bgC = document.getElementById("bg"), fxC = document.getElementById("fx");
 const bg = bgC.getContext("2d"), fx = fxC.getContext("2d");
+const gradeEl = document.getElementById("grade");
+const clockEl = document.getElementById("clock");
+let lastGrade = -1;
 
 let W = 0, H = 0, DPR = 1;
 
@@ -61,30 +98,224 @@ const sstep = (a,b,x) => { const t = clamp((x-a)/(b-a),0,1); return t*t*(3-2*t);
 const bell = (x,c,w) => Math.exp(-((x-c)/w)*((x-c)/w));
 
 /* ── Mood: golden afternoon → signature dusk → deep night → dawn ────────── */
-/* Sky palettes: [top, mid, horizon] */
+/* Sky palettes: [zenith, upper, mid, horizon]. The cool zenith is what makes the
+   warm horizon read as *light* rather than as a flat brown wash — real dusk skies
+   run blue overhead. `upper` is the plum/mauve transition band that sits between
+   the cool zenith and the warm mid. */
 const PAL = {
-  day:   { top:[26,19,14],  mid:[92,46,20],  hor:[244,170,74],  sunA:0.85, sunY:0.500, starA:0.04, rayA:0.11 },
-  dusk:  { top:[9,7,6],     mid:[77,31,15],  hor:[235,140,51],  sunA:1.00, sunY:0.615, starA:0.42, rayA:0.16 },
-  night: { top:[6,5,9],     mid:[22,14,10],  hor:[52,24,12],    sunA:0.22, sunY:0.760, starA:1.00, rayA:0.02 },
+  day:   { top:[30,34,52], upper:[74,52,44], mid:[110,55,24], hor:[246,174,80], sunA:0.85, sunY:0.500, starA:0.04, rayA:0.085, cloudA:0.55 },
+  // Sunset: deep and warm. The evening air carries the day's dust and haze, which
+  // is what pushes the band orange-red — this is the signature studio dusk.
+  dusk:  { top:[11,12,22], upper:[46,26,32], mid:[80,32,15],  hor:[235,140,51], sunA:1.00, sunY:0.615, starA:0.55, rayA:0.115, cloudA:0.90 },
+  // Sunrise: cooler, cleaner, rosier. Overnight the air settles, so dawn runs
+  // violet → rose → peach-gold rather than the ember of dusk. Same sun, different sky.
+  dawn:  { top:[13,15,32], upper:[58,36,52], mid:[118,58,48], hor:[250,180,120], sunA:0.95, sunY:0.615, starA:0.60, rayA:0.100, cloudA:0.85 },
+  // Deep night is a STARRY sky, not a dim sunset. The horizon keeps only the faint
+  // cool lift of airglow — any ember left down there reads as leftover sunlight
+  // hours after the sun has gone, which is both wrong and the thing that stops the
+  // sky reading as dark. All four stops run blue-black so the stars own the frame.
+  // cloudA 0 at night on purpose: the cloud bands are built with sunlit gold
+  // under-rims, so any of them left after dark is warm light with no source, and it
+  // smears across the starfield. They fade out through twilight, as they should.
+  night: { top:[2,2,6],    upper:[3,4,9],    mid:[5,6,11],    hor:[9,9,15],     sunA:0.22, sunY:0.760, starA:1.00, rayA:0.015, cloudA:0.00 },
 };
-function moodWeights(){
+/* ── Real solar position ────────────────────────────────────────────────────
+   The scene used to assume fixed clock times (golden hour pinned at 18:36 every
+   day of the year), which drifts up to two hours from the real sun across the
+   seasons. Altitude is now computed from the USNO/NOAA low-precision solar
+   equations — accurate to ~0.01° for our purposes — so sunrise, golden hour,
+   civil twilight and night all follow the true sun for the date.
+
+   Azimuth is deliberately NOT applied. The sun keeps its centred hero position
+   under the lockup, nested in the dip baked into the far ridge at x = 0.5. */
+const SITE = { lat: 30.6624, lon: -97.9247, name: "Liberty Hill, Texas" };
+const D2R = Math.PI/180;
+
+function j2000(date){ return date.getTime()/86400000 + 2440587.5 - 2451545.0; }  // days since J2000.0 UT
+function obliquity(d){ return (23.439 - 0.00000036*d) * D2R; }
+
+/* Sun, in equatorial coordinates. */
+function sunEq(d){
+  const g = (357.529 + 0.98560028*d) * D2R;                     // mean anomaly
+  const L = (280.459 + 0.98564736*d) * D2R;                     // mean longitude
+  const lam = L + (1.915*Math.sin(g) + 0.020*Math.sin(2*g)) * D2R;   // ecliptic longitude
+  const eps = obliquity(d);
+  return {
+    ra:  Math.atan2(Math.cos(eps)*Math.sin(lam), Math.cos(lam)),
+    dec: Math.asin(Math.sin(eps)*Math.sin(lam)),
+    dist: 149598000 * (1.00014 - 0.01671*Math.cos(g) - 0.00014*Math.cos(2*g)),   // km
+    lam,
+  };
+}
+
+/* Equatorial → horizon for this site. Azimuth is measured from north through east.
+   `q` is the parallactic angle: the tilt between celestial north and the zenith,
+   which is what turns a sky-frame position angle into something drawable. */
+function altAz(ra, dec, d){
+  const ha = ((18.697374558 + 24.06570982441908*d) % 24)*15*D2R + SITE.lon*D2R - ra;
+  const lat = SITE.lat*D2R;
+  return {
+    alt: Math.asin(Math.sin(lat)*Math.sin(dec) + Math.cos(lat)*Math.cos(dec)*Math.cos(ha)) / D2R,
+    az: ((Math.atan2(-Math.sin(ha)*Math.cos(dec),
+          Math.sin(dec)*Math.cos(lat) - Math.cos(dec)*Math.sin(lat)*Math.cos(ha)) / D2R) + 360) % 360,
+    q: Math.atan2(Math.sin(ha), Math.tan(lat)*Math.cos(dec) - Math.sin(dec)*Math.cos(ha)),
+  };
+}
+
+function solarAltitude(date){
+  const d = j2000(date), s = sunEq(d);
+  return altAz(s.ra, s.dec, d).alt;
+}
+
+/* ── Real lunar position and phase ──────────────────────────────────────────
+   Abridged lunar theory (Meeus, Astronomical Algorithms ch. 47): the three main
+   periodic terms, good to roughly 0.3° in longitude. That holds for decades either
+   side of J2000 — far longer than "the next few years" — and is finer than this
+   scene can resolve, so the moon rises, sets, traverses and shows the true phase
+   on any given night. */
+function moonState(date){
+  const d = j2000(date);
+  const Lp = (218.316 + 13.176396*d) * D2R;      // mean longitude
+  const M  = (134.963 + 13.064993*d) * D2R;      // mean anomaly
+  const F  = ( 93.272 + 13.229350*d) * D2R;      // argument of latitude
+  const D  = (297.850 + 12.190749*d) * D2R;      // mean elongation from the sun
+  const Ms = (357.529 + 0.98560028*d) * D2R;     // the sun's mean anomaly
+  // Keeping only the leading term leaves the moon up to ~1.4° out, which is hours
+  // of error on when a phase actually happens. These are the main perturbations —
+  // evection, variation and the annual equation — and they bring it to ~0.2°.
+  const lam = Lp + D2R*(6.289*Math.sin(M)
+                      + 1.274*Math.sin(2*D - M)
+                      + 0.658*Math.sin(2*D)
+                      + 0.214*Math.sin(2*M)
+                      - 0.186*Math.sin(Ms)
+                      - 0.114*Math.sin(2*F));
+  const bet = D2R*(5.128*Math.sin(F)
+                 + 0.280*Math.sin(M + F)
+                 - 0.278*Math.sin(F - M)
+                 + 0.173*Math.sin(2*D - F));
+  const dist = 385001 - 20905*Math.cos(M) - 3699*Math.cos(2*D - M)
+             - 2956*Math.cos(2*D) - 570*Math.cos(2*M);        // km — perigee reads bigger
+  const eps = obliquity(d);
+  const ra  = Math.atan2(Math.sin(lam)*Math.cos(eps) - Math.tan(bet)*Math.sin(eps), Math.cos(lam));
+  const dec = Math.asin(Math.sin(bet)*Math.cos(eps) + Math.cos(bet)*Math.sin(eps)*Math.sin(lam));
+
+  const s = sunEq(d);
+  const dRa = s.ra - ra;
+  // Geocentric elongation → phase angle → illuminated fraction.
+  const psi = Math.acos(clamp(Math.sin(s.dec)*Math.sin(dec) + Math.cos(s.dec)*Math.cos(dec)*Math.cos(dRa), -1, 1));
+  const inc = Math.atan2(s.dist*Math.sin(psi), dist - s.dist*Math.cos(psi));
+  const k = (1 + Math.cos(inc))/2;
+  // Position angle of the bright limb, from the celestial north pole through east.
+  const chi = Math.atan2(Math.cos(s.dec)*Math.sin(dRa),
+                         Math.sin(s.dec)*Math.cos(dec) - Math.cos(s.dec)*Math.sin(dec)*Math.cos(dRa));
+  const h = altAz(ra, dec, d);
+  // Elongation east of the sun along the ecliptic: 0 new, 90 first quarter,
+  // 180 full, 270 last quarter. Smooth and monotonic, unlike the illuminated
+  // fraction, which sits almost flat for hours either side of new and full.
+  const elong = (((lam - s.lam)/D2R) % 360 + 360) % 360;
+  return { alt: h.alt, az: h.az, q: h.q, k, chi, dist, elong };
+}
+/* Where the moon sits on screen. The scene reads as a south-facing panorama — the
+   sun culminates dead centre, which is due south at this latitude — so the moon's
+   true azimuth maps across a 180° window: due east at the left edge, south at the
+   centre, due west at the right. Unlike the sun the moon is free to traverse,
+   because nothing in the composition is anchored to it. */
+function moonView(date, dayW, nightW, sunPy, sunLit){
+  const st = moonState(date);
+  const x = (st.az - 90)/180;
+  if (x < -0.08 || x > 1.08 || st.alt < -2) return null;      // behind us, or set
+  const px = x*W, py = solarSunY(st.alt)*H;
+  // Bright-limb position angle relative to the zenith. On screen east is to the
+  // left, so an angle A measured from up through east is this vector.
+  const A = st.chi - st.q;
+  let vx = -Math.sin(A), vy = -Math.cos(A);
+  if (sunLit > 0.01){
+    // While the sun is actually drawn, aim the lit limb at the sun the viewer can
+    // SEE. We hold the sun at centre rather than at its true azimuth, so the
+    // astronomically correct limb angle can point away from it in the same frame —
+    // a contradiction on screen. Once the sun is down and off the canvas, the true
+    // orientation takes over, which is where it matters.
+    const sx = SUN_X*W - px, sy = sunPy - py;
+    const sl = Math.hypot(sx, sy) || 1;
+    vx = vx*(1 - sunLit) + (sx/sl)*sunLit;
+    vy = vy*(1 - sunLit) + (sy/sl)*sunLit;
+  }
+  const edge = sstep(-0.08, 0.04, x) * (1 - sstep(0.96, 1.08, x));
+  return Object.assign({}, st, {
+    x, px, py,
+    limb: Math.atan2(vy, vx),
+    rot: -st.q,                                               // the disc's own tilt
+    vis: clamp((1 - 0.86*sstep(0.10, 0.60, dayW)) * sstep(-2, 1.5, st.alt) * edge, 0, 1),
+    light: st.k * sstep(0, 22, st.alt) * nightW,              // how much it lights the land
+  });
+}
+
+/* Solar altitude → the sun's height in frame. 0° sits exactly on the horizon
+   line; tanh compresses a high summer sun so it still clears the wordmark
+   instead of climbing into it, and the -12° clamp parks it just behind the ridge
+   overnight rather than sinking out of the world. These constants reproduce the
+   three hand-tuned presets this replaced (0.500 day / 0.615 dusk / 0.760 night)
+   at the altitudes those moods actually occur. */
+function solarSunY(alt){ return HORIZON - Math.tanh(Math.max(alt, -12)/24) * 0.165; }
+
+const MOODS = ["day","dusk","dawn","night"];
+function moodWeights(alt, rising){
   if (STILL || MOOD_PIN) {
     const m = MOOD_PIN || "dusk";
-    return { day: m==="day"?1:0, dusk: m==="dusk"?1:0, night: m==="night"?1:0 };
+    const o = { day:0, dusk:0, dawn:0, night:0 };
+    o[MOODS.includes(m) ? m : "dusk"] = 1;
+    return o;
   }
-  const d = new Date(), h = d.getHours() + d.getMinutes()/60;
-  // nightF: rises through the evening, falls through the dawn
-  const nightF = clamp(sstep(17.2, 21.4, h) + (1 - sstep(5.0, 8.6, h)), 0, 1);
-  // duskF: golden-hour bell in the evening + softer one at dawn
-  const duskF = clamp(bell(h, 18.6, 1.55) + 0.75*bell(h, 6.9, 1.35), 0, 1);
-  const day = (1-nightF)*(1-duskF), night = nightF*(1-duskF);
-  const sum = day + night + duskF;
-  return { day: day/sum, dusk: duskF/sum, night: night/sum };
+  // Weights in degrees of altitude: the twilight band straddles the horizon, day
+  // sits above ~12°, night below astronomical twilight. Which twilight palette the
+  // band spends itself on depends on whether the sun is on its way up or down.
+  const twiF  = bell(alt, 0.5, 6.5);
+  const day   = sstep(3, 12, alt) * (1 - twiF);
+  const night = (1 - sstep(-13, -3, alt)) * (1 - twiF);
+  const sum = day + night + twiF;
+  return { day: day/sum, dusk: (rising ? 0 : twiF)/sum, dawn: (rising ? twiF : 0)/sum, night: night/sum };
 }
+
+/* Late-hour comfort grade. Past ~22:30 local the whole scene is eased down and
+   warmed, deepest through the small hours, lifting again before dawn. This is a
+   viewing-comfort grade for tired eyes in a dark room, not a claim about the sky,
+   so it is applied as a multiply over the finished frame rather than folded into
+   the palette — that way it also catches the wordmark, which is otherwise the
+   brightest thing on screen at 3am. */
+// The night palette is now genuinely dark on its own, so the grade no longer has to
+// work as hard — and a heavy warm multiply would fight the blue-black starry sky.
+const GRADE_MAX = 0.42;
+function comfortGrade(){
+  if (STILL || MOOD_PIN) return 0;
+  const d = sceneNow(), h = d.getHours() + d.getMinutes()/60;
+  const hh = h < 12 ? h + 24 : h;              // roll the small hours past the evening
+  return sstep(22.5, 24.5, hh) * (1 - sstep(28.5, 30.5, hh));
+}
+
 function moodBlend(){
-  const w = moodWeights(), out = {};
-  for (const k of ["sunA","sunY","starA","rayA"]) out[k] = PAL.day[k]*w.day + PAL.dusk[k]*w.dusk + PAL.night[k]*w.night;
-  for (const k of ["top","mid","hor"]) out[k] = [0,1,2].map(i => PAL.day[k][i]*w.day + PAL.dusk[k][i]*w.dusk + PAL.night[k][i]*w.night);
+  const pinned = STILL || MOOD_PIN;
+  const now = sceneNow();
+  // The sun's real altitude is always computed — a pinned mood only overrides the
+  // palette, and the moon still needs a real sky to sit in.
+  const alt = solarAltitude(now);
+  // Ten minutes ahead tells us which side of the day we are on, which is what
+  // separates a sunrise from a sunset.
+  const rising = solarAltitude(new Date(now.getTime() + 600000)) > alt;
+  const w = moodWeights(alt, rising), out = {};
+  for (const k of ["sunA","sunY","starA","rayA","cloudA"]) out[k] = MOODS.reduce((s,m) => s + PAL[m][k]*w[m], 0);
+  for (const k of ["top","upper","mid","hor"]) out[k] = [0,1,2].map(i => MOODS.reduce((s,m) => s + PAL[m][k][i]*w[m], 0));
+  if (!pinned){
+    out.sunY = solarSunY(alt);
+    // Once the sun is genuinely down there is no afterglow and no crepuscular
+    // rays — both need a sun near or above the horizon to exist at all.
+    const lit = sstep(-15, -2, alt);
+    out.sunA *= lit; out.rayA *= lit;
+    out.alt = alt; out.rising = rising;
+  }
+  // The moon rides the real sky in every mode except a deterministic still bake, so
+  // a pinned-mood preview shows it too. Its lit limb aims at whatever sun is being
+  // DRAWN, which under a pinned mood is that mood's preset rather than the live one.
+  if (!STILL) out.moon = moonView(now, w.day, w.night, out.sunY*H, clamp(out.sunA, 0, 1));
   out.night = w.night; out.day = w.day;
   return out;
 }
@@ -104,6 +335,37 @@ function ridgeY(layer, xFrac){
   return base + fbm(n, xFrac*freq + layer*37.7, 3)*amp + dip;
 }
 
+/* Ridge geometry is fixed until the next resize, so the silhouettes, the crest
+   polylines and the sky region are built once rather than re-walked per repaint.
+   A 2px step keeps a 5120-wide ridge curved; the old 4px step faceted it. */
+let hillPath = [], crestPath = [], minRidgeY = [], skyPath = null;
+function buildTerrain(){
+  hillPath = []; crestPath = []; minRidgeY = [];
+  const step = 2;
+  for (let L = 0; L < 3; L++){
+    const hp = new Path2D(), cp = new Path2D();
+    let minY = 1;
+    hp.moveTo(0, H);
+    for (let x = 0; x <= W; x += step){
+      const y = ridgeY(L, x/W);
+      if (y < minY) minY = y;
+      hp.lineTo(x, y*H);
+      if (x === 0) cp.moveTo(x, y*H); else cp.lineTo(x, y*H);
+    }
+    const yEnd = ridgeY(L, 1)*H;
+    hp.lineTo(W, yEnd); cp.lineTo(W, yEnd);
+    hp.lineTo(W, H); hp.closePath();
+    hillPath.push(hp); crestPath.push(cp); minRidgeY.push(minY);
+  }
+  skyPath = new Path2D();
+  skyPath.moveTo(0, 0);
+  skyPath.lineTo(0, ridgeY(0, 0)*H);
+  for (let x = 0; x <= W; x += step) skyPath.lineTo(x, ridgeY(0, x/W)*H);
+  skyPath.lineTo(W, ridgeY(0, 1)*H);
+  skyPath.lineTo(W, 0);
+  skyPath.closePath();
+}
+
 /* ── Pre-rendered sprites ───────────────────────────────────────────────── */
 function makeRadial(size, stops){
   const c = document.createElement("canvas"); c.width = c.height = size;
@@ -113,21 +375,106 @@ function makeRadial(size, stops){
   x.fillStyle = g; x.fillRect(0,0,size,size);
   return c;
 }
-const sunGlowSpr = makeRadial(512, [[0,"rgba(255,196,120,0.95)"],[0.22,"rgba(242,146,66,0.50)"],[0.5,"rgba(190,88,34,0.16)"],[1,"rgba(120,50,20,0)"]]);
-const sunCoreSpr = makeRadial(256, [[0,"rgba(255,236,190,1)"],[0.35,"rgba(255,214,140,0.85)"],[1,"rgba(255,190,110,0)"]]);
+/* Many-stop gradients: a 4-stop radial upscaled 3x shows concentric contour rings,
+   because each stop pair is a straight ramp. Sampling a smooth falloff curve into
+   ~24 stops (and baking at a higher resolution) removes them. */
+function rampStops(n, f){ const s = []; for (let i = 0; i <= n; i++){ const t = i/n; s.push([t, f(t)]); } return s; }
+
+const sunGlowSpr = makeRadial(1024, rampStops(24, t =>
+  css(mix([255,206,138], [148,62,25], Math.pow(t,0.55)), +(Math.pow(1-t, 2.6)*0.95).toFixed(4))));
+const sunCoreSpr = makeRadial(512, rampStops(24, t =>
+  css(mix([255,243,208], [255,186,104], Math.pow(t,0.7)), +Math.pow(1-t, 1.9).toFixed(4))));
 const emberSpr   = makeRadial(32,  [[0,"rgba(255,214,140,1)"],[0.4,"rgba(232,161,58,0.8)"],[1,"rgba(212,84,43,0)"]]);
+/* Stars as soft sub-pixel points instead of hard 1px rects, in three colour
+   temperatures — a real sky is not one flat white. */
+const starSprs = [[255,250,238], [212,224,255], [255,224,186]].map(tint =>
+  makeRadial(16, rampStops(10, t => css(tint, +Math.pow(1-t, 3).toFixed(4)))));
+/* Soft warm bloom thrown by the logo star as the specular sweep crosses it. */
+const glintSpr = makeRadial(128, rampStops(14, t =>
+  css(mix([255,244,214], [232,161,58], Math.pow(t,0.6)), +Math.pow(1-t, 2.4).toFixed(4))));
+/* Cool halo around the moon — the glow it throws into the air around it. */
+const moonGlowSpr = makeRadial(256, rampStops(16, t =>
+  css(mix([214,226,248], [120,140,186], Math.pow(t,0.5)), +(Math.pow(1-t, 3.2)*0.9).toFixed(4))));
+
+/* The moon, composed once and cached until the phase or its tilt actually moves.
+   Three parts: the lunar face (base disc + maria, which rotate with the sky since
+   the moon is tidally locked and always shows us the same hemisphere), earthshine
+   on the unlit portion, and the face masked by the true phase terminator. */
+const MARIA = [[-0.30,-0.34,0.34],[0.10,-0.42,0.26],[0.34,-0.12,0.30],[-0.42,0.06,0.30],
+               [-0.10,0.16,0.38],[0.26,0.30,0.24],[-0.30,0.44,0.20],[0.46,0.44,0.16]];
+let moonSpr = null, moonKey = "";
+function moonSprite(st, r){
+  const key = [st.k.toFixed(3), st.limb.toFixed(2), st.rot.toFixed(2), Math.round(r)].join("|");
+  if (moonSpr && moonKey === key) return moonSpr;
+  const S = Math.ceil(r*2) + 6, mk = () => {
+    const c = document.createElement("canvas"); c.width = c.height = S;
+    const g = c.getContext("2d"); g.translate(S/2, S/2); return [c, g];
+  };
+
+  const [face, f] = mk();
+  f.save(); f.rotate(st.rot);
+  const base = f.createRadialGradient(-r*0.22, -r*0.24, r*0.08, 0, 0, r);
+  base.addColorStop(0, "#fffbf2"); base.addColorStop(0.70, "#efe7d8"); base.addColorStop(1, "#cbc0ae");
+  f.fillStyle = base; f.beginPath(); f.arc(0,0,r,0,Math.PI*2); f.fill();
+  f.beginPath(); f.arc(0,0,r,0,Math.PI*2); f.clip();
+  for (const [mx,my,ms] of MARIA){                        // the dark seas
+    const g = f.createRadialGradient(mx*r, my*r, 0, mx*r, my*r, ms*r);
+    g.addColorStop(0, "rgba(92,90,90,0.40)"); g.addColorStop(0.65, "rgba(108,105,102,0.20)");
+    g.addColorStop(1, "rgba(120,116,110,0)");
+    f.fillStyle = g; f.fillRect(-S/2,-S/2,S,S);
+  }
+  const rr = mulberry32(31337);                           // craters + highlands speckle
+  for (let i = 0; i < 80; i++){
+    const a = rr()*Math.PI*2, rad = Math.sqrt(rr())*r*0.97;
+    f.fillStyle = rr() < 0.5 ? "rgba(116,112,106,0.15)" : "rgba(255,253,246,0.13)";
+    f.beginPath(); f.arc(Math.cos(a)*rad, Math.sin(a)*rad, r*(0.012 + rr()*0.05), 0, Math.PI*2); f.fill();
+  }
+  f.restore();
+
+  const [out, x] = mk();
+  // Earthshine — sunlight bounced off the Earth onto the moon's night side. It is
+  // what makes "the old moon in the new moon's arms" on a thin crescent.
+  const es = x.createRadialGradient(0,0,0, 0,0,r);
+  es.addColorStop(0, "rgba(128,142,172,0.17)"); es.addColorStop(0.86, "rgba(112,126,154,0.12)");
+  es.addColorStop(1, "rgba(100,112,140,0)");
+  x.fillStyle = es; x.beginPath(); x.arc(0,0,r,0,Math.PI*2); x.fill();
+
+  const [lit, l] = mk();
+  l.drawImage(face, -S/2, -S/2);
+  l.globalCompositeOperation = "destination-in";
+  if ("filter" in l) l.filter = `blur(${Math.max(0.5, r*0.014).toFixed(2)}px)`;   // soft terminator
+  l.rotate(st.limb);
+  // The terminator projects to an ellipse whose semi-axis along the lit direction
+  // is r*(2k-1): +r at full (no terminator), 0 at quarter (a straight edge), and
+  // -r at new. Positive bulges into the dark side (gibbous), negative into the lit
+  // side (crescent), which is exactly which way round the arc has to be traced.
+  const t = r*(2*st.k - 1);
+  l.beginPath();
+  l.arc(0, 0, r, -Math.PI/2, Math.PI/2, false);
+  if (t >= 0) l.ellipse(0, 0,  t, r, 0, Math.PI/2,  3*Math.PI/2, false);
+  else        l.ellipse(0, 0, -t, r, 0, Math.PI/2, -1*Math.PI/2, true);
+  l.closePath(); l.fillStyle = "#fff"; l.fill();
+  x.drawImage(lit, -S/2, -S/2);
+
+  moonSpr = out; moonKey = key;
+  return out;
+}
 
 function makeRaysSprite(f1, f2, seedRot){
+  // Keep S at 1024. This sprite is blitted every frame scaled up to ~5900px, and
+  // there is a hard cliff above 1024: measured 3.2ms/frame at 1024 vs 77ms at 1536
+  // for an identical picture, because the larger source drops the scaled composite
+  // off the fast path. Angular detail comes from `steps`, which is build-time only.
   const S = 1024, c = document.createElement("canvas"); c.width = c.height = S;
   const x = c.getContext("2d"); x.translate(S/2, S/2);
-  const steps = 1440;
+  const steps = 2880;
   for (let i = 0; i < steps; i++){
     const a = (i/steps)*Math.PI*2;
     let v = 0.55 + 0.45*Math.sin(a*f1 + seedRot)*Math.sin(a*f2 - seedRot*1.7);
-    v = Math.pow(Math.max(v,0), 3);
+    v = Math.pow(Math.max(v,0), 3.4);
     if (v < 0.02) continue;
-    x.strokeStyle = `rgba(255,170,90,${v*0.5})`;
-    x.lineWidth = (Math.PI*2/steps)*S*0.55;
+    x.strokeStyle = `rgba(255,176,98,${v*0.42})`;
+    x.lineWidth = (Math.PI*2/steps)*S*0.62;
     x.beginPath(); x.moveTo(0,0); x.lineTo(Math.cos(a)*S/2, Math.sin(a)*S/2); x.stroke();
   }
   // radial falloff mask
@@ -144,9 +491,10 @@ const rays1 = makeRaysSprite(14, 23, 0.0), rays2 = makeRaysSprite(11, 17, 2.1);
 let fogBands = [];
 function buildFog(){
   const defs = [
-    { tint: hex2rgb(GOLD.g400),  y: HORIZON-0.035, h: 0.10, v: 11,  a: 0.50, seed: 901 },
-    { tint: [200,170,140],       y: 0.705,         h: 0.09, v: -7,  a: 0.62, seed: 902 },
-    { tint: hex2rgb(EMBER.e300), y: 0.775,         h: 0.11, v: 5,   a: 0.55, seed: 903 },
+    /* Tints stay warm: a neutral-grey band over warm hills reads as mud, not mist. */
+    { tint: hex2rgb(GOLD.g400),  y: HORIZON-0.035, h: 0.10, v: 11,  a: 0.42, seed: 901 },
+    { tint: [226,176,124],       y: 0.705,         h: 0.09, v: -7,  a: 0.40, seed: 902 },
+    { tint: hex2rgb(EMBER.e300), y: 0.775,         h: 0.11, v: 5,   a: 0.38, seed: 903 },
   ];
   fogBands = defs.map(d => {
     const w = Math.max(W, 512), h = Math.max(Math.round(H*d.h), 64);
@@ -176,11 +524,86 @@ function buildFog(){
   });
 }
 
+/* Backlit horizon clouds. Each band is one seamless canvas built in three passes:
+   an alpha silhouette of soft blobs, a vertical colourise (dark on top → warm
+   below), and a rim carved as `silhouette MINUS silhouette shifted up`, which
+   leaves a crescent hugging every cloud's underside — that crescent is the
+   sun catching the bottom of the cloud, so it is a real derived shape rather
+   than a gradient painted over the top. */
+let cloudBands = [];
+function buildClouds(){
+  const defs = [
+    { y: 0.290, h: 0.130, v: 1.1, a: 0.55, seed: 611, nc: 7, per: [4,9], rh: [0.10, 0.26] },
+    { y: 0.400, h: 0.110, v: 1.7, a: 0.62, seed: 612, nc: 6, per: [4,8], rh: [0.10, 0.24] },
+    { y: 0.505, h: 0.085, v: 2.4, a: 0.55, seed: 613, nc: 5, per: [3,7], rh: [0.09, 0.22] },
+  ];
+  cloudBands = defs.map(d => {
+    const w = Math.max(W, 512), h = Math.max(Math.round(H*d.h), 48);
+    const mk = () => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+    const shape = mk(), sx = shape.getContext("2d"), r = mulberry32(d.seed);
+    // Blobs are placed in clusters, not spread evenly: evenly-scattered wide
+    // ellipses overlap into one continuous airbrushed streak. Clusters leave
+    // open sky between distinct cloud masses, which is what reads as "clouds".
+    const nc = Math.max(3, Math.round(d.nc * w/2560));
+    for (let ci = 0; ci < nc; ci++){
+      const ccx = ((ci + 0.18 + r()*0.64)/nc)*w;
+      const ccy = h*0.5 + (r()-0.5)*h*0.30;
+      // Blob size is derived from the band height, never from screen width, so a
+      // cloud has the same 3:1..6:1 stretch on a 32:9 ultrawide as on 16:9. Tying
+      // it to width made the same clouds streaks on one monitor and lumps on the other.
+      const spread = h*(1.2 + r()*1.8);
+      const per = d.per[0] + Math.floor(r()*(d.per[1] - d.per[0] + 1));
+      for (let i = 0; i < per; i++){
+        const cx = ccx + (r()-0.5)*2*spread;
+        const cy = ccy + (r()-0.5)*h*0.28;
+        const rh = (d.rh[0] + r()*(d.rh[1]-d.rh[0]))*h;
+        const rw = rh * (3.2 + r()*3.0);
+        for (const ox of [-w, 0, w]){        // wrapped copies → seamless scroll
+          sx.save(); sx.translate(cx+ox, cy); sx.scale(1, rh/rw);
+          const g = sx.createRadialGradient(0,0,0, 0,0,rw);
+          g.addColorStop(0, "rgba(255,255,255,0.42)");
+          g.addColorStop(0.45, "rgba(255,255,255,0.20)");
+          g.addColorStop(1, "rgba(255,255,255,0)");
+          sx.fillStyle = g; sx.beginPath(); sx.arc(0,0,rw,0,Math.PI*2); sx.fill(); sx.restore();
+        }
+      }
+    }
+    const body = mk(), bx = body.getContext("2d");
+    bx.drawImage(shape, 0, 0);
+    bx.globalCompositeOperation = "source-in";
+    const vg = bx.createLinearGradient(0,0,0,h);
+    vg.addColorStop(0.00, "rgba(26,16,16,0)");
+    vg.addColorStop(0.22, "rgba(34,19,17,0.82)");
+    vg.addColorStop(0.60, "rgba(96,44,23,0.86)");
+    vg.addColorStop(0.86, "rgba(214,120,48,0.92)");
+    vg.addColorStop(1.00, "rgba(246,178,104,0)");
+    bx.fillStyle = vg; bx.fillRect(0,0,w,h);
+
+    const rimPx = Math.max(2, Math.round(h*0.085));
+    const rim = mk(), rx = rim.getContext("2d");
+    rx.drawImage(shape, 0, 0);
+    rx.globalCompositeOperation = "destination-out";
+    rx.drawImage(shape, 0, -rimPx);            // erase everything but the underside
+    rx.globalCompositeOperation = "source-in";
+    const rg = rx.createLinearGradient(0,0,0,h);
+    rg.addColorStop(0.00, "rgba(255,190,110,0.08)");
+    rg.addColorStop(0.55, "rgba(255,201,126,0.48)");
+    rg.addColorStop(1.00, "rgba(255,228,172,0.82)");
+    rx.fillStyle = rg; rx.fillRect(0,0,w,h);
+
+    bx.globalCompositeOperation = "lighter";
+    bx.drawImage(rim, 0, 0);
+    return { c: body, y: d.y, v: d.v, a: d.a };
+  });
+}
+
 function makeGrainTile(){
   const S = 160, c = document.createElement("canvas"); c.width = c.height = S;
   const x = c.getContext("2d"), img = x.createImageData(S,S), r = mulberry32(4242);
   for (let i = 0; i < img.data.length; i += 4){
-    const v = 110 + r()*90 | 0;
+    // Centred on 128 — `overlay` treats 128 as neutral, so the old 110..200 tile
+    // averaged well above it and quietly lifted every black in the scene to mud.
+    const v = clamp(128 + (r()-0.5)*72, 0, 255) | 0;
     img.data[i]=v; img.data[i+1]=v; img.data[i+2]=v; img.data[i+3]=255;
   }
   x.putImageData(img,0,0);
@@ -191,21 +614,43 @@ let grainPattern = null;
 
 /* ── Particles ──────────────────────────────────────────────────────────── */
 const pr = mulberry32(STILL ? 99 : (Date.now() & 0xffff));
-let stars = [], mwStars = [], embers = [];
+let stars = [], mwStars = [], embers = [], liveStars = [], bakedStars = [];
 function seedField(){
   stars = []; mwStars = []; embers = [];
-  const starN = Math.round(420 * (W/DPR) / 2560);
+  const starN = Math.round(1200 * (W/DPR) / 2560);
   for (let i = 0; i < starN; i++){
-    stars.push({ x: pr(), y: pr()*0.56, s: pr() < 0.88 ? 1 : 2, ph: pr()*Math.PI*2, sp: 0.4 + pr()*1.4, b: 0.35 + pr()*0.65 });
+    const q = pr(), x = pr();
+    stars.push({
+      x, y: pr()*0.60,
+      s: 1.6 + Math.pow(q,3)*4.0,                        // mostly pinpricks, rarely a bright one
+      tint: pr() < 0.72 ? 0 : (pr() < 0.6 ? 1 : 2),      // warm / cool / amber
+      // Brightness runs past 1 on purpose: the draw clamps it, so the upper half of
+      // the field saturates and the sky gets genuinely bright stars, not a grey wash.
+      ph: pr()*Math.PI*2, sp: 0.4 + pr()*1.4, b: 0.46 + pr()*0.84,
+      big: q > 0.972,                                    // gets diffraction spikes
+      ridge: ridgeY(0, x),                               // cached — the ridge only moves on resize
+    });
   }
+  // Only the bright stars twinkle per-frame; the faint majority are static points
+  // baked into the background layer, where they cost nothing per frame. Twinkle on
+  // a 1px star at arm's length is invisible — paying ~1000 draws a frame for it was not.
+  // Baked stars never twinkle, so sampling the twinkle curve at a random phase just
+  // dims most of them for nothing. Sit them high on the curve instead.
+  for (const s of stars) s.tw0 = 0.78 + 0.22*Math.sin(s.ph);
+  // Threshold tracks the brightness range above — it keeps roughly the top 15% live
+  // so the per-frame draw count stays where it was when stars were dimmer.
+  const LIVE = s => s.big || s.b > 1.15;
+  liveStars  = stars.filter(LIVE);
+  bakedStars = stars.filter(s => !LIVE(s));
   // Milky Way: a soft diagonal band of dense faint stars (night only)
-  const mwN = Math.round(340 * (W/DPR) / 2560);
+  const mwN = Math.round(620 * (W/DPR) / 2560);
   for (let i = 0; i < mwN; i++){
     const t = pr();
     const bx = 0.60 + t*0.34, by = 0.02 + t*0.46;           // band from upper-middle to right-middle sky
     const off = (pr()+pr()+pr()-1.5)/1.5 * 0.055;            // gaussian-ish spread
-    mwStars.push({ x: bx - off*0.6, y: by + off, s: 1, ph: pr()*Math.PI*2, sp: 0.3+pr(), b: 0.12 + pr()*0.30 });
+    mwStars.push({ x: bx - off*0.6, y: by + off, s: 1.3 + pr()*0.8, ph: pr()*Math.PI*2, sp: 0.3+pr(), b: 0.28 + pr()*0.52 });
   }
+  for (const s of mwStars) s.tw0 = 0.80 + 0.20*Math.sin(s.ph);
   const emberN = Math.round(46 * (W/DPR) / 1920);
   for (let i = 0; i < emberN; i++) embers.push(newEmber(true));
 }
@@ -225,16 +670,90 @@ function spawnShoot(t){
   nextShootAt = t + 16 + pr()*30;
 }
 
+/* ── Sky ramp + ordered dither ──────────────────────────────────────────────
+   A canvas linear-gradient is interpolated in float and then quantised to 8 bits
+   per channel on the way out. Across ~1000px of near-black sky that lands many
+   rows on the same byte value, so the sky steps in visible horizontal bands. We
+   evaluate the ramp ourselves and apply a Bayer 8x8 ordered dither, which trades
+   the banding for sub-LSB noise the eye reads as a continuous gradient. */
+const BAYER8 = (() => {
+  const m = [[ 0,32, 8,40, 2,34,10,42],[48,16,56,24,50,18,58,26],
+             [12,44, 4,36,14,46, 6,38],[60,28,52,20,62,30,54,22],
+             [ 3,35,11,43, 1,33, 9,41],[51,19,59,27,49,17,57,25],
+             [15,47, 7,39,13,45, 5,37],[63,31,55,23,61,29,53,21]];
+  const f = new Float32Array(64);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) f[y*8+x] = (m[y][x] + 0.5)/64 - 0.5;
+  return f;
+})();
+
+const SKY_STOPS = [0.00, 0.42, 0.80, 1.00];   // zenith, upper, mid, horizon
+function skyColorAt(m, u){
+  const cols = [m.top, m.upper, m.mid, m.hor];
+  for (let i = 0; i < 3; i++){
+    if (u <= SKY_STOPS[i+1] || i === 2){
+      const t = clamp((u - SKY_STOPS[i])/(SKY_STOPS[i+1] - SKY_STOPS[i]), 0, 1);
+      return mix(cols[i], cols[i+1], t*t*(3-2*t));       // smoothstep, not linear
+    }
+  }
+}
+
+/* The sky is a pure vertical ramp and the dither repeats every 8px across, so
+   only an 8px-wide column is ever unique. Building that column (8 x skyH) and
+   letting the rasteriser tile it is identical output for ~1/640th of the JS:
+   measured 41.6ms -> 0.9ms per repaint at 5120x1440. */
+let skyTile = null, skyTileCtx = null;
+function paintSky(m, skyH){
+  if (!skyTile || skyTile.height !== skyH){
+    skyTile = document.createElement("canvas");
+    skyTile.width = 8; skyTile.height = skyH;
+    skyTileCtx = skyTile.getContext("2d");
+  }
+  const img = skyTileCtx.createImageData(8, skyH), d = img.data;
+  for (let y = 0; y < skyH; y++){
+    const c = skyColorAt(m, y/(skyH-1)), row = (y&7)*8;
+    for (let k = 0; k < 8; k++){                          // the 8 x-phases of the dither
+      const dz = BAYER8[row + k] + 0.5, i = (y*8 + k)*4;
+      d[i]   = clamp(c[0] + dz, 0, 255);
+      d[i+1] = clamp(c[1] + dz, 0, 255);
+      d[i+2] = clamp(c[2] + dz, 0, 255);
+      d[i+3] = 255;
+    }
+  }
+  skyTileCtx.putImageData(img, 0, 0);
+  bg.fillStyle = bg.createPattern(skyTile, "repeat");
+  bg.fillRect(0, 0, W, skyH);
+}
+
 /* ── Background layer (sky + hills + vignette) — repainted on mood drift ── */
 function paintBG(m){
   bg.clearRect(0,0,W,H);
-  // sky
-  const sky = bg.createLinearGradient(0,0,0,H*HORIZON*1.06);
-  sky.addColorStop(0, css(m.top));
-  sky.addColorStop(0.55, css(mix(m.top, m.mid, 0.55)));
-  sky.addColorStop(0.85, css(m.mid));
-  sky.addColorStop(1, css(m.hor));
-  bg.fillStyle = sky; bg.fillRect(0,0,W,H*HORIZON*1.06);
+  paintSky(m, Math.ceil(H*HORIZON*1.06));
+
+  // Static star field, baked in with the sky. Drawing it here rather than per
+  // frame also means the ridges painted below occlude it for free.
+  if (m.starA > 0.01){
+    bg.save(); bg.globalCompositeOperation = "lighter";
+    for (const s of bakedStars){
+      const sy = s.y*H;
+      const a = clamp(s.b * s.tw0 * m.starA * sstep(0, 0.16, (s.ridge*H - sy)/H), 0, 1);
+      if (a < 0.012) continue;
+      const sz = s.s*DPR;
+      bg.globalAlpha = a;
+      bg.drawImage(starSprs[s.tint], s.x*W - sz/2, sy - sz/2, sz, sz);
+    }
+    const mwA = Math.max(0, m.night - 0.55)/0.45;      // Milky Way: deep night only
+    if (mwA > 0.01){
+      for (const s of mwStars){
+        const a = s.b * s.tw0 * mwA;
+        if (a < 0.01) continue;
+        const sz = s.s*DPR;
+        bg.globalAlpha = a;
+        bg.drawImage(starSprs[1], s.x*W - sz/2, s.y*H - sz/2, sz, sz);
+      }
+    }
+    bg.restore();
+  }
+
   // ground base under hills
   bg.fillStyle = css(mix(hex2rgb("#130a06"), [4,3,2], m.night*0.5));
   bg.fillRect(0, H*HORIZON, W, H*(1-HORIZON));
@@ -245,25 +764,73 @@ function paintBG(m){
   bg.save(); bg.translate(W*SUN_X, H*HORIZON); bg.scale(1, 0.35); bg.translate(-W*SUN_X, -H*HORIZON);
   bg.fillStyle = hb; bg.beginPath(); bg.arc(W*SUN_X, H*HORIZON, W*0.42, 0, Math.PI*2); bg.fill();
   bg.restore();
-  // hills far → near, darkening at night
+  // Hills far → near. Each ridge is a shaded mass, not a flat fill: the crest
+  // washes toward the sky colour (aerial perspective — distant land sits behind
+  // more air), light pools on the slopes facing the sun, broad soft blotches
+  // break up the surface, and a gold rim rides the crest where the sun is.
   for (let L = 0; L < 3; L++){
-    const col = mix(hex2rgb(HILLS[L]), [6,4,3], m.night*0.55);
-    bg.fillStyle = css(col);
-    bg.beginPath(); bg.moveTo(0, H);
-    const step = Math.max(3*DPR, 4);
-    for (let x = 0; x <= W+step; x += step) bg.lineTo(x, ridgeY(L, x/W)*H);
-    bg.lineTo(W, H); bg.closePath(); bg.fill();
-    // gold rim light on the far ridge near the sun (dusk/day only)
-    if (L === 0 && m.sunA > 0.4){
+    // At night the land falls to a cool near-black silhouette. Left warm it reads as
+    // ground still lit by a sun that set hours ago, which is what kept the frame brown.
+    // Kept just under the horizon sky so the land reads as a true silhouette. Any
+    // lighter and the ground glows against a near-black sky, which looks backwards.
+    const base   = mix(hex2rgb(HILLS[L]), [4,5,8], m.night*0.86);
+    // Wash toward the *mid* sky, not the bright horizon: these are silhouettes
+    // catching a little skylight, and pulling them toward the gold turns the
+    // land into lit sand.
+    const crestK = [0.20, 0.11, 0.055][L] * (1 - m.night*0.72);
+    const crest  = mix(base, mix(m.mid, m.hor, 0.35), crestK);
+    const yTop   = minRidgeY[L]*H;
+
+    bg.save();
+    bg.clip(hillPath[L]);
+    const g = bg.createLinearGradient(0, yTop, 0, yTop + (H-yTop)*[0.42,0.50,0.62][L]);
+    g.addColorStop(0, css(crest)); g.addColorStop(1, css(base));
+    bg.fillStyle = g; bg.fillRect(0, yTop-2, W, H-yTop+2);
+
+    const wash = bg.createRadialGradient(W*SUN_X, H*HORIZON, 0, W*SUN_X, H*HORIZON, W*[0.32,0.26,0.20][L]);
+    wash.addColorStop(0, css(m.hor, 0.11*(1-m.night)*m.sunA*[1,0.66,0.40][L]));
+    wash.addColorStop(1, css(m.hor, 0));
+    bg.fillStyle = wash; bg.fillRect(0, yTop-2, W, H-yTop+2);
+
+    // Moonlight: a cool wash under wherever the moon actually is, strongest when
+    // it is full and high. It is the only light on the land after the sun is gone.
+    if (m.moon && m.moon.light > 0.02){
+      const ml = bg.createRadialGradient(m.moon.px, H*HORIZON, 0, m.moon.px, H*HORIZON, W*[0.30,0.26,0.22][L]);
+      ml.addColorStop(0, `rgba(158,178,216,${(0.05*m.moon.light*[1,0.7,0.45][L]).toFixed(4)})`);
+      ml.addColorStop(1, "rgba(158,178,216,0)");
+      bg.fillStyle = ml; bg.fillRect(0, yTop-2, W, H-yTop+2);
+    }
+
+    const rb = mulberry32(700+L);
+    for (let i = 0; i < 14; i++){
+      const bx = rb()*W, by = yTop + rb()*(H-yTop), rr = W*(0.05 + rb()*0.11), dark = rb() < 0.5;
+      const blot = bg.createRadialGradient(bx, by, 0, bx, by, rr);
+      blot.addColorStop(0, dark ? "rgba(0,0,0,0.09)" : css(m.hor, 0.028));
+      blot.addColorStop(1, dark ? "rgba(0,0,0,0)"    : css(m.hor, 0));
+      bg.fillStyle = blot; bg.fillRect(bx-rr, by-rr, rr*2, rr*2);
+    }
+    bg.restore();
+
+    const rimA = [0.40, 0.22, 0.12][L] * (1 - m.night) * m.sunA;
+    if (rimA > 0.02){
+      // Two passes so the crest reads as light spilling over an edge rather than
+      // as a drawn outline: a wide soft bloom, then a tight core. Alpha is shaped
+      // along X by a gaussian centred on the sun, so it fades out well before the
+      // screen edges instead of ringing the whole skyline.
       bg.save();
-      bg.strokeStyle = css(hex2rgb(GOLD.g400), 0.34*(1-m.night)*m.sunA);
-      bg.lineWidth = 1.6*DPR; bg.beginPath();
-      let started = false;
-      for (let x = 0; x <= W+step; x += step){
-        const fx_ = x/W, d = Math.abs(fx_ - SUN_X);
-        if (d < 0.24){ const y = ridgeY(0,fx_)*H - 0.6*DPR; if (!started){ bg.moveTo(x,y); started = true; } else bg.lineTo(x,y); }
+      bg.lineJoin = "round"; bg.lineCap = "round";
+      const gold = hex2rgb(GOLD.g300);
+      for (const [wMul, aMul] of [[5.5, 0.30], [1.0, 1.0]]){
+        const grd = bg.createLinearGradient(0, 0, W, 0);
+        for (let i = 0; i <= 32; i++){
+          const u = i/32;
+          grd.addColorStop(u, css(gold, rimA*aMul*Math.exp(-Math.pow((u-SUN_X)/0.125, 2))));
+        }
+        bg.strokeStyle = grd;
+        bg.lineWidth = [1.9,1.5,1.2][L]*DPR*wMul;
+        bg.stroke(crestPath[L]);
       }
-      bg.globalAlpha = 1; bg.stroke(); bg.restore();
+      bg.restore();
     }
   }
   // vignette
@@ -284,7 +851,8 @@ function drawLockup(t, m, introK){
   const titleSize = Math.min(H*0.082, W*0.10);
   const starS = titleSize*1.30, starCx = cx, starCy = H*0.155;
   const glint = Math.pow(Math.max(0, Math.sin(t*0.7 + 1.2)), 12);   // periodic sparkle
-  const a = 0.96 * introK;
+  const sweepT = Math.cos(t*0.7 + 1.2);   // +1 -> -1 through the glint peak, so the
+  const a = 0.96 * introK;                // highlight travels one way across the face
 
   // star (logo path is 48-box, star centered ~(24, 17.8))
   fx.save();
@@ -295,15 +863,32 @@ function drawLockup(t, m, introK){
   sg.addColorStop(0, "#f3d693"); sg.addColorStop(0.5, GOLD.g400); sg.addColorStop(1, GOLD.g600);
   fx.shadowColor = "rgba(232,161,58,0.85)"; fx.shadowBlur = (10 + glint*26);
   fx.globalAlpha = a; fx.fillStyle = sg; fx.fill(STAR_PATH);
-  fx.shadowBlur = 0; fx.restore();
-  // diffraction spikes on glint
-  if (glint > 0.04){
-    fx.save(); fx.globalAlpha = glint*0.75*a; fx.strokeStyle = "rgba(255,232,180,0.9)"; fx.lineWidth = 1.2*DPR;
-    const L = starS*(0.9 + glint*0.8);
-    fx.beginPath();
-    fx.moveTo(starCx-L, starCy); fx.lineTo(starCx+L, starCy);
-    fx.moveTo(starCx, starCy-L*0.8); fx.lineTo(starCx, starCy+L*0.8);
-    fx.stroke(); fx.restore();
+  fx.shadowBlur = 0;
+  // Specular sweep: a soft band of light rakes across the star's face, clipped to
+  // the mark itself — the way a bevelled metal surface catches a moving light.
+  // Replaces the old cross of drawn lines, which read as a cartoon twinkle.
+  if (glint > 0.002){
+    fx.save();
+    fx.clip(STAR_PATH);
+    const sweep = 24 - sweepT*28;                        // across the 48-unit logo box
+    const lg = fx.createLinearGradient(sweep-6.5, 2, sweep+6.5, 34);
+    lg.addColorStop(0.00, "rgba(255,240,205,0)");
+    lg.addColorStop(0.40, `rgba(255,246,222,${(0.46*glint).toFixed(4)})`);
+    lg.addColorStop(0.52, `rgba(255,253,242,${(0.88*glint).toFixed(4)})`);
+    lg.addColorStop(0.64, `rgba(255,246,222,${(0.46*glint).toFixed(4)})`);
+    lg.addColorStop(1.00, "rgba(255,240,205,0)");
+    fx.globalAlpha = a;
+    fx.fillStyle = lg; fx.fillRect(0, 0, 48, 40);
+    fx.restore();
+  }
+  fx.restore();
+  // ...and the light it throws: a soft warm bloom that swells with the sweep
+  if (glint > 0.01){
+    fx.save(); fx.globalCompositeOperation = "lighter";
+    const hs = starS*(1.5 + glint*1.2);
+    fx.globalAlpha = 0.40*glint*a;
+    fx.drawImage(glintSpr, starCx - hs/2, starCy - hs/2, hs, hs);
+    fx.restore();
   }
 
   // Liberty Hill — title case + font-bold + tracking-tight, matching the site logo
@@ -357,7 +942,8 @@ function frame(now){
 function render(dt){
   const m = moodBlend();
   // repaint bg only when the mood has actually drifted (or every 20s as a keepalive)
-  const key = m.top.map(v=>v|0).join(",") + "|" + (m.sunY*200|0);
+  const key = m.top.map(v=>v|0).join(",") + "|" + (m.sunY*200|0)
+            + "|" + (m.moon ? ((m.moon.px/40|0) + ":" + (m.moon.light*40|0)) : "-");
   if (key !== lastMoodKey || t - lastBGPaint > 20){ paintBG(m); lastMoodKey = key; lastBGPaint = t; }
 
   const sunX = W*SUN_X, sunY = H*m.sunY;
@@ -366,23 +952,24 @@ function render(dt){
   /* stars */
   const starA = m.starA;
   if (starA > 0.01){
-    fx.save();
-    for (const s of stars){
+    fx.save(); fx.globalCompositeOperation = "lighter";
+    for (const s of liveStars){          // the faint ones are baked into the bg layer
+      const sy = s.y*H, ridge = s.ridge*H;
+      if (sy > ridge - 8*DPR) continue;
+      // atmospheric extinction — stars thin out and dim into the horizon haze
+      const ext = sstep(0, 0.16, (ridge - sy)/H);
       const tw = 0.55 + 0.45*Math.sin(t*s.sp + s.ph);
-      const sy = s.y*H;
-      if (sy > ridgeY(0, s.x)*H - 8) continue;
-      fx.globalAlpha = clamp(s.b * tw * starA, 0, 1);
-      fx.fillStyle = "#fdf6e8";
-      fx.fillRect(s.x*W, sy, s.s*DPR, s.s*DPR);
-    }
-    /* Milky Way — deep night only (dense faint star band, no haze) */
-    const mwA = Math.max(0, m.night - 0.55)/0.45;
-    if (mwA > 0.01){
-      for (const s of mwStars){
-        const tw = 0.6 + 0.4*Math.sin(t*s.sp + s.ph);
-        fx.globalAlpha = s.b * tw * mwA;
-        fx.fillStyle = "#e8e2f2";
-        fx.fillRect(s.x*W, s.y*H, DPR, DPR);
+      const a = clamp(s.b * tw * starA * ext, 0, 1);
+      if (a < 0.012) continue;
+      const sz = s.s*DPR*(0.85 + tw*0.3), px = s.x*W;
+      fx.globalAlpha = a;
+      fx.drawImage(starSprs[s.tint], px - sz/2, sy - sz/2, sz, sz);
+      if (s.big){
+        // A soft airy halo that breathes with the scintillation, not drawn spikes.
+        // The cross is a camera artifact, and at this scale it reads as a sticker.
+        const hs = sz*(3.2 + tw*1.4);
+        fx.globalAlpha = a*0.30;
+        fx.drawImage(starSprs[s.tint], px - hs/2, sy - hs/2, hs, hs);
       }
     }
     fx.restore();
@@ -408,15 +995,46 @@ function render(dt){
     }
   }
 
+  /* the moon — true position, true phase, occluded by the ridge like anything else */
+  if (m.moon && m.moon.vis > 0.01){
+    const mo = m.moon;
+    const r = Math.max(6, H*0.036 * (384400/mo.dist));     // perigee reads bigger than apogee
+    fx.save(); fx.clip(skyPath);
+    fx.globalCompositeOperation = "lighter";
+    fx.globalAlpha = 0.34*mo.vis*(0.25 + 0.75*mo.k);       // a full moon hazes more than a crescent
+    const hs = r*9;
+    fx.drawImage(moonGlowSpr, mo.px - hs/2, mo.py - hs/2, hs, hs);
+    fx.globalCompositeOperation = "source-over";
+    fx.globalAlpha = mo.vis;
+    const spr = moonSprite(mo, r);
+    fx.drawImage(spr, mo.px - spr.width/2, mo.py - spr.height/2);
+    fx.restore();
+  }
+
   /* god rays (two counter-rotating combs, additive) */
   if (m.rayA > 0.005){
     const breathe = 0.85 + 0.15*Math.sin(t*0.4);
     const rs = Math.max(W,H)*1.15;
     fx.save(); fx.globalCompositeOperation = "lighter";
+    fx.clip(skyPath);                 // rays belong to the air, not to the ground
     fx.globalAlpha = m.rayA * breathe;
     fx.translate(sunX, sunY);
     fx.rotate(t*0.008); fx.drawImage(rays1, -rs/2, -rs/2, rs, rs);
     fx.rotate(-t*0.0126); fx.drawImage(rays2, -rs/2, -rs/2, rs, rs);
+    fx.restore();
+  }
+
+  /* backlit horizon clouds — drawn after the rays so they break the shafts up,
+     and before the sun so its bloom spills across their lit undersides */
+  if (m.cloudA > 0.02){
+    fx.save();
+    for (const b of cloudBands){
+      const w = b.c.width;
+      const off = ((t*b.v*DPR) % w + w) % w;
+      fx.globalAlpha = b.a * m.cloudA;
+      fx.drawImage(b.c, -off, H*b.y);
+      fx.drawImage(b.c, w-off, H*b.y);
+    }
     fx.restore();
   }
 
@@ -425,10 +1043,15 @@ function render(dt){
     const pulse = 1 + 0.03*Math.sin(t*0.4);
     const gs = Math.min(H*1.1, W*0.85)*pulse, cs = Math.min(H*0.34, W*0.28);  // width-clamped for portrait monitors
     fx.save(); fx.globalCompositeOperation = "lighter";
+    // The glow is atmospheric scatter, so it legitimately washes over the land.
+    // The disc is a solid body: it is clipped to the sky, so the ridge genuinely
+    // occludes it as the sun rises from behind the hills and sets back down.
     fx.globalAlpha = 0.9*m.sunA;
     fx.drawImage(sunGlowSpr, sunX-gs/2, sunY-gs/2, gs, gs);
+    fx.save(); fx.clip(skyPath);
     fx.globalAlpha = m.sunA;
     fx.drawImage(sunCoreSpr, sunX-cs/2, sunY-cs/2 + H*0.006, cs, cs);
+    fx.restore();
     fx.restore();
   }
 
@@ -438,7 +1061,9 @@ function render(dt){
   for (const b of fogBands){
     const w = b.c.width;
     const off = ((t*b.v*DPR) % w + w) % w;
-    fx.globalAlpha = b.a * fogA * (1 - m.night*0.6);
+    // Valley mist is lit by the sun; after dark it should all but vanish rather
+    // than sit there as a warm band under a starfield.
+    fx.globalAlpha = b.a * fogA * (1 - m.night*0.97);
     fx.drawImage(b.c, -off, H*b.y);
     fx.drawImage(b.c, w-off, H*b.y);
   }
@@ -475,6 +1100,26 @@ function render(dt){
   fx.fillStyle = grainPattern; fx.fillRect(0,0,W+160,H+160);
   fx.restore();
 
+  /* time readout while the clock is running fast */
+  if (SPEED > 1){        // preview-only mode, so a DOM write per frame is fine
+    const d = sceneNow(), mo = m.moon;
+    clockEl.style.display = "block";
+    clockEl.textContent =
+      d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" }) + "   " +
+      d.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit" }) + "\n" +
+      "sun   " + (m.alt === undefined ? "--" : (m.alt >= 0 ? "+" : "") + m.alt.toFixed(1) + "°") + "\n" +
+      (mo ? "moon  " + (mo.alt >= 0 ? "+" : "") + mo.alt.toFixed(1) + "°   " + (mo.k*100).toFixed(0) + "% lit"
+          : "moon  below horizon");
+  }
+
+  /* late-hour comfort grade — only touched when it has actually moved */
+  const gr = comfortGrade()*GRADE_MAX;
+  if (Math.abs(gr - lastGrade) > 0.004){
+    gradeEl.style.display = gr > 0.002 ? "block" : "none";
+    gradeEl.style.opacity = gr.toFixed(3);
+    lastGrade = gr;
+  }
+
   /* intro: fade up from black with a sun bloom */
   if (!STILL && introT < INTRO_DUR){
     const k = sstep(0, 1, introT/INTRO_DUR);
@@ -488,7 +1133,9 @@ function resize(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);  // full native pixels — crisp on any scaling
   W = Math.round(innerWidth*DPR); H = Math.round(innerHeight*DPR);
   ASPK = Math.max(1, (W/H)/1.778);
+  buildTerrain();
   buildFog();
+  buildClouds();
   for (const c of [bgC, fxC]){ c.width = W; c.height = H; }
   grainPattern = null;
   seedField();

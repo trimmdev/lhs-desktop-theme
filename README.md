@@ -1,10 +1,11 @@
 # Liberty Hill Studios — Desktop Theme
 
 The studio's signature **Texas Hill Country dusk**, living on your desktop. A fully
-animated wallpaper that follows the real clock — golden afternoon → signature dusk →
-deep night with fireflies and a faint Milky Way → warm dawn — plus a complete Windows
-brand kit: transparent taskbar, dark + gold accent theme, terminal colors, notification
-chimes, icons, and an optional keyboard-driven search/navigation stack.
+animated wallpaper that follows the **real sun and the real moon** — golden afternoon →
+signature dusk → near-black starry night with fireflies and the Milky Way → rose dawn —
+plus a complete Windows brand kit: transparent taskbar, dark + gold accent theme,
+terminal colors, notification chimes, icons, and an optional keyboard-driven
+search/navigation stack.
 
 ![Living wallpaper preview](docs/preview-live.gif)
 
@@ -34,14 +35,15 @@ open it in any browser after cloning.
 
 - **`wallpaper/lhs-dusk.html`** — the living wallpaper. Self-contained single file
   (Sora font embedded, zero network calls). Canvas-rendered at native resolution on any
-  monitor: noise-generated ridgelines, god-rays, drifting valley mist, rising embers that
-  become fireflies at night, twinkling stars + shooting stars, film grain, and the Lone
-  Star + wordmark lockup. 30fps capped, ~1–2% CPU per monitor, auto-pauses under
-  fullscreen apps (via Lively). URL params: `?mood=day|dusk|night` pins a mood
-  (default follows your clock); `?still=1` renders one deterministic frame.
+  monitor: noise-generated ridgelines, dithered sky gradient, aerially-shaded hills,
+  backlit cloud decks, god-rays, drifting valley mist, rising embers that become
+  fireflies at night, a dense star field + Milky Way + shooting stars, film grain, and
+  the Lone Star + wordmark lockup. 30fps capped, **~0.2% of one CPU core per monitor**
+  (measured), auto-pauses under fullscreen apps (via Lively).
 - **`stills/`** — pixel-perfect PNG renders at 16 standard resolutions (1366×768 → 8K,
-  16:10, ultrawides, 5K, portrait) + night/day variants at common sizes. Use as static
-  wallpapers or lock screens. Need another size? `node tools/bake-stills.mjs 7680x2160`.
+  16:10, ultrawides, 5K, portrait) + dawn/day/night variants at common sizes. Use as
+  static wallpapers or lock screens. Need another size?
+  `node tools/bake-stills.mjs 7680x2160 --moods dusk,dawn`.
 - **`terminal/liberty-hill-dusk.json`** — Windows Terminal scheme (ink background,
   parchment text, gold cursor, ember/verdant/sky/plum ANSI ramp).
 - **`flow-launcher/Liberty Hill Dusk.xaml`** — Flow Launcher theme (translucent ink
@@ -51,6 +53,48 @@ open it in any browser after cloning.
 - **`icons/`** — multi-size `lhs.ico` (Lone Star mark), account avatar, OEM logo.
 - **`sounds/`** — two short studio chimes (finish + attention), wired to the Windows
   sound events `SystemAsterisk`, `SystemExclamation`, and `Notification.Default`.
+
+## The sky is computed, not faked
+
+The scene doesn't just interpolate between times of day — it solves for where the sun
+and moon actually are.
+
+- **Sun** — altitude from the USNO/NOAA low-precision solar equations. Sunrise, golden
+  hour, civil twilight and night follow the true sun for the date, so they drift with the
+  seasons instead of firing at hardcoded clock times. The disc is clipped to the sky, so
+  the ridge genuinely occludes it as it rises and sets.
+- **Moon** — position and phase from abridged lunar theory (Meeus ch. 47, with the
+  evection, variation and annual-equation terms). Verified at **0.38 minutes of error per
+  lunation across 618 lunations / 50 years**. The terminator is a real projected ellipse,
+  the unlit limb carries earthshine, the maria rotate with the parallactic angle, and the
+  disc grows and shrinks with true perigee/apogee distance.
+- **Sunrise ≠ sunset** — dawn gets its own cooler, rosier palette. Overnight the air
+  settles, so morning runs violet → rose → peach where evening runs ember.
+- **Late-hour comfort** — after ~22:30 the finished frame is eased down and warmed,
+  deepest through the small hours, lifting before dawn.
+
+**Set your own location** — the site is a single constant near the top of
+`wallpaper/lhs-dusk.html`:
+
+```js
+const SITE = { lat: 30.6624, lon: -97.9247, name: "Liberty Hill, Texas" };
+```
+
+**One deliberate stylization:** the sun is pinned to the centre of the frame rather than
+placed at its true azimuth, because the composition nests it in a dip baked into the far
+ridge, under the wordmark. The moon *does* use its true azimuth. So each body's own
+position is real, but the on-screen distance *between* them is not — at a first quarter
+they are 97° apart in the real sky while appearing close together here.
+
+### URL parameters
+
+| Param | Effect |
+|---|---|
+| `?mood=day\|dusk\|dawn\|night` | Pin a mood instead of following the real sun |
+| `?at=2026-07-21T21:30` | Run the scene at another moment (local time) |
+| `?at=+9` / `?at=-3.5` | ...or a signed hour offset from now |
+| `?speed=1440` | Run the clock N× faster — 1440 puts a full day in one minute, with a time/sun/moon readout |
+| `?still=1` | One deterministic frame, for baking PNGs |
 
 ## Design law
 
