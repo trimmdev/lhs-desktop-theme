@@ -22,21 +22,78 @@
 .PARAMETER NoTerminal
   Skip the Windows Terminal color scheme.
 
+.PARAMETER DryRun
+  Print everything this script would change, then exit WITHOUT touching anything.
+  Run this first. The macOS installer has always had --dry-run; this is the
+  Windows equivalent.
+
 .EXAMPLE
+  .\install.ps1 -DryRun         # show the plan, change nothing
   .\install.ps1                 # wallpaper + taskbar + theme + terminal + sounds
   .\install.ps1 -NavStack       # everything above + search/nav stack
 #>
+# [CmdletBinding()] is load-bearing, not decoration. Without it this is a SIMPLE
+# script: PowerShell quietly drops any unrecognised named argument into $args and
+# runs the body anyway. So `.\install.ps1 --dry-run` (the Unix spelling, which is
+# what an AI assistant or a Mac-shaped habit will reach for) used to perform the
+# FULL REAL INSTALL — winget installs, HKCU registry writes, wallpaper and lock
+# screen replaced — while the operator believed they were previewing.
+# Verified: a probe carrying the old param block printed "BODY RAN" with
+# `--dry-run` sitting unused in $args. With CmdletBinding, that same invocation
+# now fails parameter binding and nothing runs.
+[CmdletBinding()]
 param(
   [switch]$NavStack,
   [switch]$SkipApps,
   [switch]$Chimes,
-  [switch]$NoTerminal
+  [switch]$NoTerminal,
+  [switch]$DryRun
 )
 
 $ErrorActionPreference = "Continue"
 $repo = $PSScriptRoot
 $assets = "$env:USERPROFILE\Pictures\Liberty Hill Studios"
 Write-Host "`n=== Liberty Hill Studios Desktop Theme ===" -ForegroundColor Yellow
+
+# ── Dry run: state the plan, change nothing, leave ──────────────────────────
+# Deliberately an early exit rather than a flag threaded through every step.
+# A per-step wrapper retrofitted onto the mutations below would be a much bigger
+# change to a script whose real path cannot be rehearsed safely — and it would
+# risk the far worse failure of a dry run that mutates. Nothing after this block
+# can run, so there is no path where -DryRun writes.
+if ($DryRun) {
+  Write-Host "`n[dry-run] Nothing below is executed. This is what a real run would do:`n" -ForegroundColor Cyan
+  Write-Host "  assets    -> copy wallpaper, icons and sounds into"
+  Write-Host "               $assets"
+  if (-not $SkipApps) {
+    Write-Host "  apps      -> winget install rocksdanister.LivelyWallpaper"
+    Write-Host "               winget install CharlesMilette.TranslucentTB"
+  } else {
+    Write-Host "  apps      -> skipped (-SkipApps)"
+  }
+  Write-Host "  wallpaper -> copy the scene into Lively's library and apply it to every monitor"
+  Write-Host "  fallback  -> set the static desktop wallpaper (SystemParametersInfo)"
+  Write-Host "  theme     -> HKCU: dark mode, gold accent palette, DWM accent, transparency"
+  if (-not $NoTerminal) {
+    Write-Host "  terminal  -> add the Liberty Hill Dusk scheme to Windows Terminal settings.json"
+  } else {
+    Write-Host "  terminal  -> skipped (-NoTerminal)"
+  }
+  if ($Chimes) {
+    Write-Host "  sounds    -> HKCU AppEvents: map SystemAsterisk / SystemExclamation / Notification.Default"
+  } else {
+    Write-Host "  sounds    -> skipped (opt in with -Chimes)"
+  }
+  if ($NavStack) {
+    Write-Host "  nav stack -> winget install Everything + PowerToys + Flow Launcher,"
+    Write-Host "               write FancyZones layouts and the Flow theme, restart both"
+  } else {
+    Write-Host "  nav stack -> skipped (opt in with -NavStack)"
+  }
+  Write-Host "`n  Everything is user-level and reversible. No admin rights are requested."
+  Write-Host "  Re-run without -DryRun to apply.`n" -ForegroundColor Cyan
+  return
+}
 
 # ── 0. Assets to a stable home ─────────────────────────────────────────────
 New-Item "$assets\sounds" -ItemType Directory -Force | Out-Null
